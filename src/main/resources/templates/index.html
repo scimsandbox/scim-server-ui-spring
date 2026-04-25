@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="_csrf" th:content="${_csrf.token}">
+    <meta name="_csrf_header" th:content="${_csrf.headerName}">
+    <title>SCIM Playground</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/favicon.svg}" href="/favicon.svg">
+    <link rel="stylesheet" th:href="@{/fonts/fonts.css}" href="/fonts/fonts.css">
+    <style>
+        :root {
+            --bg: #0f172a; --surface: #1e293b; --surface2: #334155;
+            --border: #475569; --text: #e2e8f0; --text-muted: #94a3b8;
+            --primary: #3b82f6; --primary-hover: #2563eb;
+            --danger: #ef4444; --danger-hover: #dc2626;
+            --success: #22c55e; --radius: 8px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+            background: linear-gradient(160deg, #0b1220 0%, #0f172a 45%, #111827 100%);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        .container { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
+        h1 { font-size: 1.75rem; margin-bottom: 0.25rem; }
+        .subtitle { color: var(--text-muted); margin-bottom: 2rem; }
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1rem; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .card-header h2 { font-size: 1.25rem; }
+        .btn { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; border: none; border-radius: var(--radius); cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: background 0.15s; }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-danger:hover { background: var(--danger-hover); }
+        .btn-sm { padding: 0.35rem 0.75rem; font-size: 0.8rem; }
+        input, textarea { width: 100%; padding: 0.5rem 0.75rem; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 0.875rem; margin-bottom: 0.75rem; }
+        input:focus, textarea:focus { outline: none; border-color: var(--primary); }
+        label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem; }
+        .workspace-list { list-style: none; }
+        .workspace-item { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 0.5rem; cursor: pointer; transition: border-color 0.15s; }
+        .workspace-item:hover { border-color: var(--primary); }
+        .workspace-item .name { font-weight: 600; }
+        .workspace-item .meta { font-size: 0.75rem; color: var(--text-muted); }
+        .workspace-item .actions { display: flex; gap: 0.5rem; }
+        .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+        .btn-secondary:hover { border-color: var(--primary); }
+        .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 100; }
+        .modal-backdrop.active { display: flex; }
+        .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; width: 100%; max-width: 480px; }
+        .modal h3 { margin-bottom: 1rem; }
+        .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+        .blocking-overlay { position: fixed; inset: 0; background: rgba(11, 18, 32, 0.78); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 300; }
+        .blocking-overlay.active { display: flex; }
+        .blocking-overlay-card { min-width: min(28rem, calc(100vw - 2rem)); max-width: calc(100vw - 2rem); padding: 1.25rem 1.5rem; background: rgba(30, 41, 59, 0.96); border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 12px; box-shadow: 0 24px 60px rgba(15, 23, 42, 0.45); display: flex; align-items: center; gap: 0.9rem; }
+        .blocking-overlay-spinner { width: 1.15rem; height: 1.15rem; border-radius: 50%; border: 2px solid rgba(148, 163, 184, 0.28); border-top-color: var(--primary); animation: spin 0.8s linear infinite; flex: 0 0 auto; }
+        .blocking-overlay-title { font-size: 0.95rem; font-weight: 600; }
+        .blocking-overlay-copy { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem; }
+        .empty-state { text-align: center; padding: 3rem 1rem; color: var(--text-muted); }
+        .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
+        .badge-info { background: var(--primary); color: #fff; }
+        .bmc-widget { position: fixed; right: 1.5rem; bottom: 1.5rem; z-index: 90; }
+        .bmc-widget summary { list-style: none; min-height: 3.5rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.55rem; padding: 0.75rem 0.95rem; border-radius: 999px; cursor: pointer; background: linear-gradient(180deg, #ffe066 0%, #ffd43b 100%); box-shadow: 0 20px 45px rgba(15, 23, 42, 0.45); border: 1px solid rgba(255, 255, 255, 0.35); }
+        .bmc-widget summary::-webkit-details-marker { display: none; }
+        .bmc-widget summary img { display: block; width: 1.9rem; height: 1.9rem; }
+        .bmc-widget-label { color: #172554; font-size: 0.84rem; font-weight: 800; line-height: 1; white-space: nowrap; }
+        .bmc-widget[open] summary { box-shadow: 0 24px 50px rgba(15, 23, 42, 0.5); }
+        .bmc-panel { position: absolute; right: 0; bottom: calc(100% + 0.75rem); width: min(10.5rem, calc(100vw - 2rem)); display: block; background: #fff; border-radius: 1.5rem; overflow: hidden; box-shadow: 0 20px 45px rgba(15, 23, 42, 0.45); opacity: 0; transform: translateY(0.5rem) scale(0.98); pointer-events: none; transition: opacity 0.18s ease, transform 0.18s ease; }
+        .bmc-widget[open] .bmc-panel { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+        .bmc-panel img { display: block; width: 100%; height: auto; }
+        .bmc-panel-copy { display: flex; align-items: center; justify-content: center; padding: 0.5rem 0.55rem 0.65rem; background: #fff4b3; color: #7c2d12; text-align: center; }
+        .bmc-panel-hint { font-size: 0.72rem; font-weight: 700; opacity: 0.85; }
+        .toast { position: fixed; bottom: 6rem; right: 1.5rem; background: var(--success); color: #fff; padding: 0.75rem 1.25rem; border-radius: var(--radius); font-size: 0.875rem; opacity: 0; transition: opacity 0.3s; z-index: 200; pointer-events: none; }
+        .toast.show { opacity: 1; }
+        .logo { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 2rem; }
+        .logo svg { width: 32px; height: 32px; }
+        .site-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; gap: 1rem; }
+        .site-header-brand { display: flex; align-items: center; gap: 0.75rem; }
+        .site-header-user { display: flex; align-items: center; gap: 0.75rem; }
+        .user-name { font-size: 0.875rem; color: var(--text-muted); }
+        .stats-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+        .stat-tile { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+        .stat-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+        .stat-value { font-size: 1.35rem; }
+        .stats-breakdown { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem 1rem; margin-bottom: 0.75rem; }
+        .stats-breakdown-item { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.7rem 0.9rem; background: rgba(15, 23, 42, 0.45); border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.85rem; }
+        .stats-note { font-size: 0.78rem; color: var(--text-muted); line-height: 1.5; }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        @media (max-width: 720px) {
+            .stats-grid, .stats-breakdown { grid-template-columns: 1fr; }
+            .bmc-widget { right: 1rem; bottom: 1rem; }
+            .bmc-widget summary { min-height: 3rem; gap: 0.4rem; padding: 0.65rem 0.8rem; }
+            .bmc-widget summary img { width: 1.6rem; height: 1.6rem; }
+            .bmc-widget-label { font-size: 0.72rem; }
+            .bmc-panel { width: min(7.5rem, calc(100vw - 2rem)); border-radius: 1.1rem; }
+            .bmc-panel-copy { padding: 0.35rem 0.45rem 0.45rem; }
+            .bmc-panel-hint { font-size: 0.64rem; }
+            .toast { right: 1rem; bottom: 4.75rem; }
+        }
+        .site-footer { padding: 2rem 1rem 1.5rem; text-align: center; }
+        .site-footer-icons { display: flex; align-items: center; justify-content: center; gap: 1.25rem; }
+        .site-footer-icons a { display: inline-flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; border-radius: 50%; border: 1px solid var(--border); color: var(--text-muted); transition: color 0.2s, border-color 0.2s, background 0.2s; }
+        .site-footer-icons a:hover { color: var(--text); border-color: var(--primary); background: rgba(59,130,246,0.08); }
+        .site-footer-icons svg { width: 1.4rem; height: 1.4rem; fill: currentColor; }
+    
+        .auto-style-1 { margin:0 }
+        .auto-style-2 { background:var(--surface2);color:var(--text) }
+        .auto-style-3 { background:var(--surface2) }
+        .auto-style-4 { max-width: 760px; }</style>
+</head>
+<body>
+<div class="container">
+    <header class="site-header">
+        <div class="site-header-brand">
+            <h1>SCIM Playground</h1>
+        </div>
+        <div class="site-header-user">
+            <span class="user-name" th:text="${currentUser} + ' (' + ${currentUserRole} + ')'">User (Role)</span>
+            <form method="post" th:action="@{/logout}"  class="auto-style-1" >
+                <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+                <button class="btn auto-style-2" type="submit" >Logout</button>
+            </form>
+        </div>
+    </header>
+
+    <div class="card">
+        <div class="card-header">
+            <h2>Workspaces</h2>
+            <button class="btn btn-primary" onclick="showCreateModal()">+ New Workspace</button>
+        </div>
+        <div style="margin: 0 1.25rem 1rem 1.25rem; color: #dc2626; background: rgba(220, 38, 38, 0.1); padding: 0.75rem; border-radius: var(--radius); text-align: center; border: 1px solid rgba(220, 38, 38, 0.2); font-size: 0.85rem; font-weight: 500;">
+            Inactive workspaces are deleted automatically after 3 months.
+        </div>
+        <ul class="workspace-list" id="workspaceList">
+            <li class="empty-state" id="emptyState">Loading...</li>
+        </ul>
+    </div>
+</div>
+
+<!-- Create Workspace Modal -->
+<div class="modal-backdrop" id="createModal">
+    <div class="modal">
+        <h3>Create Workspace</h3>
+        <label for="wsName">Name</label>
+        <input type="text" id="wsName" placeholder="e.g. my-workspace">
+        <label for="wsDesc">Description (optional)</label>
+        <textarea id="wsDesc" rows="2" placeholder="A short description"></textarea>
+        <div class="modal-actions">
+            <button class="btn auto-style-3"  onclick="hideCreateModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="createWorkspace()">Create</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="statsModal">
+    <div class="modal auto-style-4" >
+        <h3 id="statsModalTitle">Workspace Stats</h3>
+        <div class="stats-grid">
+            <div class="stat-tile">
+                <span class="stat-label">Objects</span>
+                <strong class="stat-value" id="statsObjects">-</strong>
+            </div>
+            <div class="stat-tile">
+                <span class="stat-label">Relations</span>
+                <strong class="stat-value" id="statsRelations">-</strong>
+            </div>
+            <div class="stat-tile">
+                <span class="stat-label">Est. Disk Usage</span>
+                <strong class="stat-value" id="statsStorage">-</strong>
+            </div>
+        </div>
+        <div class="stats-breakdown">
+            <div class="stats-breakdown-item"><span>Users</span><strong id="statsUsers">-</strong></div>
+            <div class="stats-breakdown-item"><span>Groups</span><strong id="statsGroups">-</strong></div>
+            <div class="stats-breakdown-item"><span>Tokens</span><strong id="statsTokens">-</strong></div>
+            <div class="stats-breakdown-item"><span>Logs</span><strong id="statsLogs">-</strong></div>
+            <div class="stats-breakdown-item"><span>User Attribute Rows</span><strong id="statsAttributes">-</strong></div>
+            <div class="stats-breakdown-item"><span>Group Memberships</span><strong id="statsMemberships">-</strong></div>
+        </div>
+        <p class="stats-note" id="statsAttributeBreakdown">Emails - · Phones - · Addresses - · Entitlements - · Roles - · IMs - · Photos - · X509 -</p>
+        <p class="stats-note">Estimated disk usage apportions each PostgreSQL relation's on-disk size to this workspace by its share of rows in that relation. It includes table, index, and TOAST storage, but row width differences, dead tuples, and free space are distributed proportionally.</p>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="hideStatsModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<div class="blocking-overlay" id="actionOverlay" aria-hidden="true">
+    <output class="blocking-overlay-card" aria-live="polite" aria-busy="true">
+        <div class="blocking-overlay-spinner"></div>
+        <div>
+            <div class="blocking-overlay-title" id="actionOverlayTitle">Please wait</div>
+            <div class="blocking-overlay-copy" id="actionOverlayCopy">The UI is locked until the request completes.</div>
+        </div>
+    </output>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+const API = '/api';
+const CSRF_TOKEN = document.querySelector('meta[name="_csrf"]')?.content;
+const CSRF_HEADER = document.querySelector('meta[name="_csrf_header"]')?.content || 'X-CSRF-TOKEN';
+const statsCache = new Map();
+let blockingActionInFlight = false;
+
+async function apiFetch(url, options = {}) {
+    const method = (options.method || 'GET').toUpperCase();
+    const headers = new Headers(options.headers || {});
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && method !== 'TRACE' && CSRF_TOKEN) {
+        headers.set(CSRF_HEADER, CSRF_TOKEN);
+    }
+    return fetch(url, {...options, headers, credentials: 'same-origin'});
+}
+
+async function loadWorkspaces() {
+    try {
+        const res = await apiFetch(`${API}/workspaces`);
+        const data = await res.json();
+        const list = document.getElementById('workspaceList');
+        if (!data.length) {
+            list.innerHTML = '<li class="empty-state">No workspaces yet. Create one to get started.</li>';
+            return;
+        }
+        list.innerHTML = data.map(ws => `
+            <li class="workspace-item" onclick="window.location='/workspaces/${ws.id}'">
+                <div>
+                    <div class="name">${esc(ws.name)}</div>
+                    <div class="meta">Workspace ID ${esc(ws.id)}</div>
+                    <div class="meta">Owner ${esc(ws.createdByDisplayName || ws.createdByUsername || 'n/a')}</div>
+                    <div class="meta" id="ws-size-${ws.id}">Total size Loading...</div>
+                    <div class="meta">Created ${new Date(ws.createdAt).toLocaleString()}</div>
+                    <div class="meta">Last updated ${ws.updatedAt ? new Date(ws.updatedAt).toLocaleString() : 'N/A'}</div>
+                </div>
+                <div class="actions" onclick="event.stopPropagation()">
+                    <button class="btn btn-secondary btn-sm" onclick="showWorkspaceStats('${ws.id}','${esc(ws.name)}')">Stats</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteWorkspace('${ws.id}','${esc(ws.name)}')">Delete</button>
+                </div>
+            </li>
+        `).join('');
+        await Promise.all(data.map(ws => hydrateWorkspaceSize(ws.id)));
+    } catch {
+        document.getElementById('workspaceList').innerHTML = '<li class="empty-state">Failed to load workspaces.</li>';
+    }
+}
+
+async function hydrateWorkspaceSize(workspaceId) {
+    try {
+        const stats = await loadWorkspaceStats(workspaceId);
+        const size = document.getElementById(`ws-size-${workspaceId}`);
+        if (size) {
+            size.textContent = `Total size ${formatBytes(stats.storage?.estimatedRowBytes)}`;
+        }
+    } catch {
+        const size = document.getElementById(`ws-size-${workspaceId}`);
+        if (size) {
+            size.textContent = 'Total size unavailable';
+        }
+    }
+}
+
+async function loadWorkspaceStats(workspaceId) {
+    if (statsCache.has(workspaceId)) {
+        return statsCache.get(workspaceId);
+    }
+    const res = await apiFetch(`${API}/workspaces/${workspaceId}/stats`);
+    if (!res.ok) {
+        throw new Error('Failed to load workspace stats');
+    }
+    const stats = await res.json();
+    statsCache.set(workspaceId, stats);
+    return stats;
+}
+
+async function showWorkspaceStats(workspaceId, workspaceName) {
+    if (statsCache.has(workspaceId)) {
+        const stats = statsCache.get(workspaceId);
+        document.getElementById('statsModalTitle').textContent = `Workspace Stats: ${workspaceName}`;
+        renderWorkspaceStats(stats, 'stats');
+        document.getElementById('statsModal').classList.add('active');
+        return;
+    }
+    await runBlockingAction('Loading workspace stats', async () => {
+        try {
+            const stats = await loadWorkspaceStats(workspaceId);
+            document.getElementById('statsModalTitle').textContent = `Workspace Stats: ${workspaceName}`;
+            renderWorkspaceStats(stats, 'stats');
+            document.getElementById('statsModal').classList.add('active');
+        } catch {
+            toast('Failed to load workspace stats');
+        }
+    });
+}
+
+function hideStatsModal() {
+    document.getElementById('statsModal').classList.remove('active');
+}
+
+function setActionOverlay(active, title = 'Please wait', copy = 'The UI is locked until the request completes.') {
+    const overlay = document.getElementById('actionOverlay');
+    if (!overlay) {
+        return;
+    }
+    overlay.classList.toggle('active', active);
+    overlay.setAttribute('aria-hidden', active ? 'false' : 'true');
+    setText('actionOverlayTitle', title);
+    setText('actionOverlayCopy', copy);
+}
+
+async function runBlockingAction(title, operation, copy = 'This action may take a moment while the database responds.') {
+    if (blockingActionInFlight) {
+        return;
+    }
+    blockingActionInFlight = true;
+    setActionOverlay(true, title, copy);
+    try {
+        return await operation();
+    } catch (err) {
+        console.error('Action failed:', err);
+        toast('Request failed');
+        return null;
+    } finally {
+        blockingActionInFlight = false;
+        setActionOverlay(false);
+    }
+}
+
+function showCreateModal() { document.getElementById('createModal').classList.add('active'); document.getElementById('wsName').focus(); }
+function hideCreateModal() { document.getElementById('createModal').classList.remove('active'); }
+
+async function createWorkspace() {
+    const name = document.getElementById('wsName').value.trim();
+    if (!name) return;
+    const desc = document.getElementById('wsDesc').value.trim();
+    await runBlockingAction('Creating workspace', async () => {
+        const res = await apiFetch(`${API}/workspaces`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, description: desc || null})
+        });
+        if (!res.ok) {
+            const msg = await res.text();
+            toast(msg || 'Failed to create workspace');
+            return;
+        }
+        hideCreateModal();
+        document.getElementById('wsName').value = '';
+        document.getElementById('wsDesc').value = '';
+        toast('Workspace created');
+        await loadWorkspaces();
+    });
+}
+
+async function deleteWorkspace(id, name) {
+    if (!confirm(`Delete workspace "${name}"? This also deletes all its data.`)) return;
+    await runBlockingAction('Deleting workspace', async () => {
+        const res = await apiFetch(`${API}/workspaces/${id}`, {method: 'DELETE'});
+        if (!res.ok) {
+            const msg = await res.text();
+            toast(msg || 'Failed to delete workspace');
+            return;
+        }
+        statsCache.delete(id);
+        toast('Workspace deleted');
+        await loadWorkspaces();
+    });
+}
+
+function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function renderWorkspaceStats(stats, prefix) {
+    const objects = stats?.objects || {};
+    const relations = stats?.relations || {};
+    const storage = stats?.storage || {};
+    const attributes = objects.userAttributes || {};
+
+    setText(`${prefix}Objects`, formatNumber(objects.total));
+    setText(`${prefix}Relations`, formatNumber(relations.total));
+    setText(`${prefix}Storage`, formatBytes(storage.estimatedRowBytes));
+    setText(`${prefix}Users`, formatNumber(objects.users));
+    setText(`${prefix}Groups`, formatNumber(objects.groups));
+    setText(`${prefix}Tokens`, formatNumber(objects.tokens));
+    setText(`${prefix}Logs`, formatNumber(objects.logs));
+    setText(`${prefix}Attributes`, formatNumber(objects.userAttributeRows));
+    setText(`${prefix}Memberships`, formatNumber(relations.groupMemberships));
+    setText(
+        `${prefix}AttributeBreakdown`,
+        `Emails ${formatNumber(attributes.emails)} · Phones ${formatNumber(attributes.phoneNumbers)} · Addresses ${formatNumber(attributes.addresses)} · Entitlements ${formatNumber(attributes.entitlements)} · Roles ${formatNumber(attributes.roles)} · IMs ${formatNumber(attributes.ims)} · Photos ${formatNumber(attributes.photos)} · X509 ${formatNumber(attributes.x509Certificates)}`);
+}
+
+function setText(id, value) {
+    const element = document.getElementById(id);
+    if (element) {
+        element.textContent = value;
+    }
+}
+
+function formatNumber(value) {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        return '-';
+    }
+    return new Intl.NumberFormat().format(value);
+}
+
+function formatBytes(value) {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        return '-';
+    }
+    if (value < 1024) {
+        return `${formatNumber(value)} B`;
+    }
+
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    let size = value / 1024;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex += 1;
+    }
+    return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[unitIndex]}`;
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+globalThis.showCreateModal = showCreateModal;
+globalThis.hideCreateModal = hideCreateModal;
+globalThis.createWorkspace = createWorkspace;
+globalThis.showWorkspaceStats = showWorkspaceStats;
+globalThis.hideStatsModal = hideStatsModal;
+globalThis.deleteWorkspace = deleteWorkspace;
+
+try {
+    await loadWorkspaces();
+} catch (err) {
+    console.error('Initialization error:', err);
+    toast('Failed to load workspaces');
+}
+</script>
+<footer class="site-footer">
+    <div style="margin-bottom: 1rem;">
+        <a th:href="${validatorUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 0.5rem; color: var(--text-muted); text-decoration: none; font-weight: 500; font-size: 0.95rem;">
+            <img th:src="|${validatorUrl}/favicon.svg|" alt="Favicon" style="width: 1.25rem; height: 1.25rem; border-radius: 0.25rem;"> Validator App
+        </a>
+    </div>
+    <nav class="site-footer-icons" aria-label="Legal and contact links">
+        <a href="https://scimsandbox.github.io/scim-app-policy/terms.html" target="_blank" rel="noopener noreferrer" aria-label="Terms of Service" title="Terms of Service">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M1 21h12v2H1zM5.245 8.07l2.83-2.827 14.14 14.142-2.828 2.828zM12.317 1l5.657 5.656-2.83 2.83-5.654-5.66zM3.825 9.485l5.657 5.657-2.828 2.828-5.657-5.657z"/></svg>
+        </a>
+        <a href="https://scimsandbox.github.io/scim-app-policy/privacy.html" target="_blank" rel="noopener noreferrer" aria-label="Privacy Policy" title="Privacy Policy">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+        </a>
+        <a href="https://github.com/scimsandbox" target="_blank" rel="noopener noreferrer" aria-label="GitHub" title="GitHub">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.866-.013-1.7-2.782.603-3.369-1.342-3.369-1.342-.454-1.155-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.337-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836a9.59 9.59 0 0 1 2.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+        </a>
+        <a href="https://github.com/scimsandbox/scim-project/issues" target="_blank" rel="noopener noreferrer" aria-label="Report Issue" title="Report Issue">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 8h-2.81c-.45-.78-1.07-1.45-1.82-1.96L17 4.41 15.59 3l-2.17 2.17C12.96 5.06 12.49 5 12 5c-.49 0-.96.06-1.41.17L8.41 3 7 4.41l1.62 1.63C7.88 6.55 7.26 7.22 6.81 8H4v2h2.09c-.05.33-.09.66-.09 1v1H4v2h2v1c0 .34.04.67.09 1H4v2h2.81c1.04 1.79 2.97 3 5.19 3s4.15-1.21 5.19-3H20v-2h-2.09c.05-.33.09-.66.09-1v-1h2v-2h-2v-1c0-.34-.04-.67-.09-1H20V8zm-6 8h-4v-2h4v2zm0-4h-4v-2h4v2z"/></svg>
+        </a>
+        <a href="mailto:support@scimsandbox.net" aria-label="Email Support" title="Email Support">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z"/></svg>
+        </a>
+    </nav>
+</footer>
+<details class="bmc-widget">
+    <summary aria-label="Buy me a coffee">
+        <img th:src="@{/images/buy-me-a-coffee-icon.svg}" src="/images/buy-me-a-coffee-icon.svg" alt="Buy Me a Coffee icon">
+        <span class="bmc-widget-label">Buy me a coffee</span>
+    </summary>
+    <a class="bmc-panel" href="https://buymeacoffee.com/eduard.pal" target="_blank" rel="noopener noreferrer" aria-label="Open Buy Me a Coffee">
+        <img th:src="@{/images/buy-me-a-coffee.png}" src="/images/buy-me-a-coffee.png" alt="Buy Me a Coffee QR code">
+        <span class="bmc-panel-copy">
+            <span class="bmc-panel-hint">Scan or click</span>
+        </span>
+    </a>
+</details>
+</body>
+</html>
