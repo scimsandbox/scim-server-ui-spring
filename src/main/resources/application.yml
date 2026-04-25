@@ -1,0 +1,94 @@
+server:
+  servlet:
+    session:
+      cookie:
+        name: SCIM_SERVER_MGMT_SESSION
+
+spring:
+  threads:
+    virtual:
+      enabled: true
+  application:
+    name: scim-server-mgmt
+
+  datasource:
+    hikari:
+      pool-name: ScimServerUiHikariPool
+      maximum-pool-size: 15
+      minimum-idle: 15
+      connection-timeout: 5000
+      max-lifetime: 1800000
+      keepalive-time: 30000
+      data-source-properties:
+        reWriteBatchedInserts: true
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        "[default_batch_fetch_size]": 100
+        "[jdbc.batch_size]": 100
+        "[order_inserts]": true
+        "[order_updates]": true
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+  security:
+    oauth2:
+      client:
+        registration:
+          auth0:
+            client-id: ${AUTH0_CLIENT_ID}
+            client-secret: ${AUTH0_CLIENT_SECRET}
+            scope: openid,profile,email
+            authorization-grant-type: authorization_code
+            redirect-uri: ${AUTH0_REDIRECT_URI}
+        provider:
+          auth0:
+            issuer-uri: ${AUTH0_ISSUER_URI}
+
+logging:
+  level:
+    "[de.palsoftware.scim]": DEBUG
+    "[org.springframework.security]": WARN
+
+management:
+  server:
+    port: 9090
+  endpoint:
+    health:
+      show-components: always
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  health:
+    ping:
+      enabled: false
+    ssl:
+      enabled: false
+    diskspace:
+      enabled: false
+
+
+app:
+  security:
+    actuator:
+      api-key: ${ACTUATOR_API_KEY}
+    oidc:
+      role-claim: https://scimplayground.dev/roles
+      admin-role: admin
+      user-role: user
+
+  token:
+    default-validity: P30D
+
+  scim-api:
+    base:
+      url: http://localhost:8080
+
+  validator:
+    url: http://localhost:8081
