@@ -1,0 +1,41 @@
+--- src/main/java/de/palsoftware/scim/server/ui/repository/WorkspaceStatsRepository.java
++++ src/main/java/de/palsoftware/scim/server/ui/repository/WorkspaceStatsRepository.java
+@@ -10,34 +10,19 @@
+
+     private static final String WORKSPACE_STATS_SQL = """
+             WITH counts AS (
+                 SELECT
+                     (SELECT COUNT(*) FROM scim_users u WHERE u.workspace_id = :workspaceId) AS workspace_users,
+-                    (SELECT COUNT(*) FROM scim_users) AS total_users,
++                    (SELECT NULLIF(reltuples::bigint, 0) FROM pg_class WHERE relname = 'scim_users') AS total_users,
+                     (SELECT COUNT(*) FROM scim_groups g WHERE g.workspace_id = :workspaceId) AS workspace_groups,
+-                    (SELECT COUNT(*) FROM scim_groups) AS total_groups,
++                    (SELECT NULLIF(reltuples::bigint, 0) FROM pg_class WHERE relname = 'scim_groups') AS total_groups,
+                     (SELECT COUNT(*) FROM workspace_tokens t WHERE t.workspace_id = :workspaceId) AS workspace_tokens,
+-                    (SELECT COUNT(*) FROM workspace_tokens) AS total_tokens,
++                    (SELECT NULLIF(reltuples::bigint, 0) FROM pg_class WHERE relname = 'workspace_tokens') AS total_tokens,
+                     (SELECT COUNT(*) FROM scim_request_logs l WHERE l.workspace_id = :workspaceId) AS workspace_logs,
+-                    (SELECT COUNT(*) FROM scim_request_logs) AS total_logs,
++                    (SELECT NULLIF(reltuples::bigint, 0) FROM pg_class WHERE relname = 'scim_request_logs') AS total_logs,
+                     (SELECT COALESCE(SUM(json_array_length(emails)), 0) FROM scim_users u WHERE u.workspace_id = :workspaceId) AS workspace_emails,
+-                    (SELECT COALESCE(SUM(json_array_length(emails)), 0) FROM scim_users) AS total_emails,
+                     (SELECT COALESCE(SUM(json_array_length(phone_numbers)), 0) FROM scim_users u WHERE u.workspace_id = :workspaceId) AS workspace_phone_numbers,
+-                    (SELECT COALESCE(SUM(json_array_length(phone_numbers)), 0) FROM scim_users) AS total_phone_numbers,
+                     (SELECT COALESCE(SUM(json_array_length(addresses)), 0) FROM scim_users u WHERE u.workspace_id = :workspaceId) AS workspace_addresses,
+-                    (SELECT COALESCE(SUM(json_array_length(addresses)), 0) FROM scim_users) AS total_addresses,
+                     (SELECT COALESCE(SUM(json_array_length(entitlements)), 0) FROM scim_users u WHERE u.workspace_id = :workspaceId) AS workspace_entitlements,
+-                    (SELECT COALESCE(SUM(json_array_length(entitlements)), 0) FROM scim_users) AS total_entitlements,
+                     (SELECT COALESCE(SUM(json_array_length(roles)), 0) FROM scim_users u WHERE u.workspace_id = :workspaceId) AS workspace_roles,
+-                    (SELECT COALESCE(SUM(json_array_length(roles)), 0) FROM scim_users) AS total_roles,
+                     (SELECT COALESCE(SUM(json_array_length(ims)), 0) FROM scim_users u WHERE u.workspace_id = :workspaceId) AS workspace_ims,
+-                    (SELECT COALESCE(SUM(json_array_length(ims)), 0) FROM scim_users) AS total_ims,
+                     (SELECT COALESCE(SUM(json_array_length(photos)), 0) FROM scim_users u WHERE u.workspace_id = :workspaceId) AS workspace_photos,
+-                    (SELECT COALESCE(SUM(json_array_length(photos)), 0) FROM scim_users) AS total_photos,
+                     (SELECT COALESCE(SUM(json_array_length(x509_certificates)), 0) FROM scim_users u WHERE u.workspace_id = :workspaceId) AS workspace_x509_certificates,
+-                    (SELECT COALESCE(SUM(json_array_length(x509_certificates)), 0) FROM scim_users) AS total_x509_certificates,
+                     (SELECT COUNT(*) FROM scim_group_memberships m WHERE m.workspace_id = :workspaceId) AS workspace_group_memberships,
+-                    (SELECT COUNT(*) FROM scim_group_memberships) AS total_group_memberships
++                    (SELECT NULLIF(reltuples::bigint, 0) FROM pg_class WHERE relname = 'scim_group_memberships') AS total_group_memberships
+             )
+             SELECT
+                 workspace_users,
