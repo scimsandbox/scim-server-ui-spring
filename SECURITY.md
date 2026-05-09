@@ -36,7 +36,7 @@ The highest-risk areas are:
 - bearer-token generation, hashing, listing, and revocation for workspaces
 - direct writes to shared SCIM user, group, membership, and log tables
 - request log storage and display, because payloads may contain sensitive data
-- actuator exposure on port 9090
+- actuator exposure on the separate management port 9090
 
 This repo does not serve the SCIM provider endpoints itself, but it manages data
 and tokens that are used by the separate SCIM server. Secure that service and
@@ -58,13 +58,13 @@ The codebase currently includes these baseline controls:
 If you deploy this app anywhere beyond a private sandbox, do all of the
 following first:
 
-1. Replace all Auth0 settings, datasource credentials, and actuator keys with
+1. Replace all Auth0 settings and datasource credentials with
    environment-specific secrets.
 2. Put the UI behind HTTPS and a trusted reverse proxy.
 3. Limit access to authenticated operators only. This is an admin surface, not
    a public application.
-4. Protect `/actuator/**` separately and rotate the actuator API key when staff
-   or environments change.
+4. Keep the management port on 9090 private. Do not publish it on public
+   ingress or a load balancer.
 5. Treat workspace bearer tokens as secrets. They are shown once and stored only
    as hashes.
 6. Review whether request logs may store personal data, credentials, or tenant
@@ -74,8 +74,7 @@ following first:
 
 ## Secrets Handling
 
-- Do not commit Auth0 secrets, database passwords, actuator keys, or raw
-  workspace tokens.
+- Do not commit Auth0 secrets, database passwords, or raw workspace tokens.
 - Do not reuse local sandbox values in shared or production environments.
 - Assume any example values in documentation are placeholders only.
 

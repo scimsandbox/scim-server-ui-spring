@@ -27,6 +27,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -158,6 +159,16 @@ class WorkspaceServiceTest {
         WorkspaceDataStats result = service.getWorkspaceDataStats(workspaceId, "admin", true);
 
         assertThat(result.userCount()).isEqualTo(10);
+    }
+
+    @Test
+    void getWorkspaceDataStats_accessDenied_doesNotQueryStatsRepository() {
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getWorkspaceDataStats(workspaceId, "admin", true))
+                .isInstanceOf(ResponseStatusException.class);
+
+        verifyNoInteractions(workspaceStatsRepository);
     }
 
     // ─── deleteWorkspace ────────────────────────────────────────────────

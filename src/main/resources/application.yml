@@ -76,12 +76,13 @@ management:
 
 app:
   security:
-    actuator:
-      api-key: ${ACTUATOR_API_KEY}
     oidc:
       role-claim: https://scimplayground.dev/roles
       admin-role: admin
       user-role: user
+
+  stats:
+    cache-ttl: PT30M
 
   token:
     default-validity: P30D

@@ -1,6 +1,7 @@
 package de.palsoftware.scim.server.ui.repository;
 
 import jakarta.persistence.EntityManager;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Repository;
 
 import java.util.UUID;
@@ -68,6 +69,7 @@ public class WorkspaceStatsRepository {
         this.entityManager = entityManager;
     }
 
+    @Cacheable(cacheNames = "workspaceStats", key = "#workspaceId", sync = true)
     public WorkspaceDataStats fetchWorkspaceDataStats(UUID workspaceId) {
         Object[] row = (Object[]) entityManager.createNativeQuery(WORKSPACE_STATS_SQL)
                 .setParameter("workspaceId", workspaceId)

@@ -5,6 +5,10 @@
       "type": "java.lang.Object"
     },
     {
+      "name": "app.stats",
+      "type": "java.lang.Object"
+    },
+    {
       "name": "app.security",
       "type": "java.lang.Object"
     },
@@ -27,9 +31,9 @@
   ],
   "properties": [
     {
-      "name": "app.security.actuator.api-key",
-      "type": "java.lang.String",
-      "description": "Actuator API key used by the management filter."
+      "name": "app.stats.cache-ttl",
+      "type": "java.time.Duration",
+      "description": "TTL for cached workspace stats queries."
     },
     {
       "name": "app.security.oidc.role-claim",

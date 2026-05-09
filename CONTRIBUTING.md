@@ -80,7 +80,7 @@ The main implementation areas are:
 - `src/main/java/de/palsoftware/scim/server/ui/service`: workspace, token,
   user, group, log, and sample-data logic
 - `src/main/java/de/palsoftware/scim/server/ui/security`: OIDC login, CSRF,
-  logout, and actuator protection
+  logout, and management-port security
 - `src/main/java/de/palsoftware/scim/server/ui/model` and `repository`: JPA
   entities and data access
 - `src/main/resources/templates` and `src/main/resources/static`: Thymeleaf UI,

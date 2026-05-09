@@ -10,8 +10,8 @@ the SCIM sandbox.
   sample data generation
 - shared SCIM JPA entities, repositories, and security helpers under
   `de.palsoftware.scim.server.common.*`
-- Auth0 OIDC login, role mapping, CSRF protection, and an actuator API-key
-  filter
+- Auth0 OIDC login, role mapping, CSRF protection, and a separate
+  management port for actuator endpoints
 - a Dockerfile for packaging the application as a container image
 
 ## What This Repo Does Not Contain
@@ -34,7 +34,8 @@ only to display the external SCIM base URL in the UI.
 - inspect and clear request logs stored for a workspace
 - generate sample users, groups, and memberships
 - show the currently configured external SCIM base URL for each workspace
-- protect `/actuator/**` with an `X-API-KEY` header
+- keep `/actuator/**` on the internal management port and out of public
+  ingress
 
 ## Routes
 
@@ -47,7 +48,7 @@ only to display the external SCIM base URL in the UI.
 | Groups | `GET/POST /api/workspaces/{workspaceId}/groups`, `PUT/DELETE /api/workspaces/{workspaceId}/groups/{groupId}`, `GET /api/workspaces/{workspaceId}/groups/lookup` |
 | Logs | `GET/DELETE /api/workspaces/{workspaceId}/logs` |
 | Sample data | `POST /api/workspaces/{workspaceId}/generate/{users|groups|relations|all}` |
-| Actuator | `GET /actuator/health` with `X-API-KEY` |
+| Actuator | `GET http://localhost:9090/actuator/health` |
 
 ## Repository Layout
 
@@ -148,7 +149,7 @@ By default, Spring Boot listens on `http://localhost:8080` unless you set
 ### 4. Check health
 
 ```bash
-curl http://localhost:8080/actuator/health
+curl http://localhost:9090/actuator/health
 ```
 
 Adjust the port if you set `SERVER_PORT`.
