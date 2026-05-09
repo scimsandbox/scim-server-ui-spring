@@ -1,6 +1,7 @@
 package de.palsoftware.scim.server.ui.model;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import java.time.Instant;
@@ -42,6 +43,7 @@ public class ScimGroup {
     private Long version;
 
     @OneToMany(mappedBy = "group", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @BatchSize(size = 100)
     private List<ScimGroupMembership> members = new ArrayList<>();
 
     @PrePersist
