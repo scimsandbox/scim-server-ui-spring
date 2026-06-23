@@ -182,6 +182,39 @@ class ScimAdminServiceTest {
                 .isInstanceOf(ResponseStatusException.class);
     }
 
+    @Test
+    void updateUser_nullCollections_success() {
+        ScimUser existing = buildUser("old");
+        existing.setId(userId);
+        existing.setEmails(null);
+        existing.setPhoneNumbers(null);
+        existing.setAddresses(null);
+        existing.setEntitlements(null);
+        existing.setRoles(null);
+        existing.setIms(null);
+        existing.setPhotos(null);
+        existing.setX509Certificates(null);
+
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
+        when(userRepository.findByIdAndWorkspaceId(userId, workspaceId)).thenReturn(Optional.of(existing));
+        when(userRepository.save(any(ScimUser.class))).thenAnswer(i -> i.getArgument(0));
+
+        UserUpsertRequest request = new UserUpsertRequest(
+                "newname", "Display", true, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null,
+                null,
+                List.of(new UserUpsertRequest.MultiValue("123-456", "work", "Work Phone", true)),
+                null, null, null, null, null, null);
+
+        ScimUser result = service.updateUser(workspaceId, userId, request, "admin", true);
+
+        assertThat(result.getUserName()).isEqualTo("newname");
+        assertThat(result.getPhoneNumbers()).hasSize(1);
+        assertThat(result.getPhoneNumbers().get(0).getValue()).isEqualTo("123-456");
+    }
+
     // ─── deleteUser ─────────────────────────────────────────────────────
 
     @Test
