@@ -34,7 +34,7 @@ public class ScimRequestLog {
     @Column(name = "http_method", nullable = false)
     private String method;
 
-    @Column(name = "request_path", nullable = false)
+    @Column(name = "request_path", nullable = false, columnDefinition = "TEXT")
     private String path;
 
     @Column(name = "http_status")
