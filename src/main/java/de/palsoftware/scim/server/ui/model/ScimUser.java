@@ -407,6 +407,9 @@ public class ScimUser {
     }
 
     public List<ScimUserEmail> getEmails() {
+        if (emails == null) {
+            emails = new ArrayList<>();
+        }
         return emails;
     }
 
@@ -415,6 +418,9 @@ public class ScimUser {
     }
 
     public List<ScimUserPhoneNumber> getPhoneNumbers() {
+        if (phoneNumbers == null) {
+            phoneNumbers = new ArrayList<>();
+        }
         return phoneNumbers;
     }
 
@@ -423,6 +429,9 @@ public class ScimUser {
     }
 
     public List<ScimUserAddress> getAddresses() {
+        if (addresses == null) {
+            addresses = new ArrayList<>();
+        }
         return addresses;
     }
 
@@ -431,6 +440,9 @@ public class ScimUser {
     }
 
     public List<ScimUserEntitlement> getEntitlements() {
+        if (entitlements == null) {
+            entitlements = new ArrayList<>();
+        }
         return entitlements;
     }
 
@@ -439,6 +451,9 @@ public class ScimUser {
     }
 
     public List<ScimUserRole> getRoles() {
+        if (roles == null) {
+            roles = new ArrayList<>();
+        }
         return roles;
     }
 
@@ -447,6 +462,9 @@ public class ScimUser {
     }
 
     public List<ScimUserIm> getIms() {
+        if (ims == null) {
+            ims = new ArrayList<>();
+        }
         return ims;
     }
 
@@ -455,6 +473,9 @@ public class ScimUser {
     }
 
     public List<ScimUserPhoto> getPhotos() {
+        if (photos == null) {
+            photos = new ArrayList<>();
+        }
         return photos;
     }
 
@@ -463,6 +484,9 @@ public class ScimUser {
     }
 
     public List<ScimUserX509Certificate> getX509Certificates() {
+        if (x509Certificates == null) {
+            x509Certificates = new ArrayList<>();
+        }
         return x509Certificates;
     }
 
