@@ -18,7 +18,7 @@ body {
 .site-header-brand .subtitle { font-size: 0.75rem; color: var(--text-muted); margin: 0; }
 .site-header-user { display: flex; align-items: center; gap: 0.75rem; }
 .user-name { font-size: 0.875rem; color: var(--text-muted); }
-.container { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
+.container { max-width: 1200px; margin: 0 auto; padding: 2rem 1rem; }
 a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
@@ -132,6 +132,28 @@ label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bott
     color: var(--text-muted);
     margin-top: 0.2rem;
 }
+.session-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.9rem;
+    padding: 0.75rem 1.25rem;
+    background: var(--warn);
+    color: #0f172a;
+    font-size: 0.875rem;
+    font-weight: 500;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.45);
+    z-index: 400;
+}
+.session-banner.active { display: flex; }
+/* Above .session-banner (400), .blocking-overlay (300) and .toast (200): it must hide whatever
+   failure text the page paints in the moment between the 401 and the reload committing. */
+.session-reload-overlay { z-index: 500; }
 .token-reveal { background: var(--bg); padding: 1rem; border-radius: var(--radius); margin-top: 0.75rem; border: 1px solid var(--success); }
 .token-reveal-label { display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem; }
 .token-reveal-value { width: 100%; min-height: 5.5rem; resize: vertical; background: rgba(15, 23, 42, 0.72); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); padding: 0.75rem 0.85rem; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.85rem; line-height: 1.5; }
@@ -191,6 +213,11 @@ label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bott
 .bmc-panel-hint { font-size: 12px; font-weight: 700; opacity: 0.85; }
 .toast { position: fixed; bottom: 6rem; right: 1.5rem; background: var(--success); color: #fff; padding: 0.75rem 1.25rem; border-radius: var(--radius); font-size: 0.875rem; opacity: 0; transition: opacity 0.3s; z-index: 200; pointer-events: none; }
 .toast.show { opacity: 1; }
+.site-footer { padding: 2rem 1rem 1.5rem; text-align: center; }
+.site-footer-icons { display: flex; align-items: center; justify-content: center; gap: 1.25rem; }
+.site-footer-icons a { display: inline-flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; border-radius: 50%; border: 1px solid var(--border); color: var(--text-muted); transition: color 0.2s, border-color 0.2s, background 0.2s; }
+.site-footer-icons a:hover { color: var(--text); border-color: var(--primary); background: rgba(59,130,246,0.08); }
+.site-footer-icons svg { width: 1.4rem; height: 1.4rem; fill: currentColor; }
 @media (max-width: 720px) {
     .bmc-widget { right: 1rem; bottom: 1rem; }
     .bmc-widget summary { min-height: 3rem; gap: 0.4rem; padding: 0.65rem 0.8rem; }

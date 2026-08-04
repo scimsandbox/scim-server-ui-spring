@@ -5,6 +5,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.core.GrantedAuthority;
@@ -12,14 +14,26 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
 import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.AndRequestMatcher;
+import org.springframework.security.web.util.matcher.AnyRequestMatcher;
+import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestHeaderRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 import java.lang.reflect.Array;
 import java.util.ArrayList;
@@ -51,18 +65,74 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                   LogoutSuccessHandler oidcLogoutSuccessHandler) throws Exception {
+                                                   LogoutSuccessHandler oidcLogoutSuccessHandler,
+                                                   ClientRegistrationRepository clientRegistrationRepository) throws Exception {
+        RequestMatcher apiMatcher = PathPatternRequestMatcher.withDefaults().matcher("/api/**");
+
+        // Only page navigations may become the post-login landing page. ExceptionTranslationFilter calls
+        // saveRequest before commencing the entry point, so without the /api/** exclusion a 401'd XHR
+        // lands the user on raw JSON after the OIDC round trip. Supplying our own RequestCache replaces
+        // Spring's default matcher wholesale; these are the exclusions that matter for this app's traffic,
+        // not the full default set (the Accept-based JSON, multipart and SSE clauses are dropped, none of
+        // which this app can trip). The favicon clause is belt-and-braces: /favicon.* is permitAll below,
+        // so such a request never reaches ExceptionTranslationFilter unless that is narrowed later.
+        HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
+        requestCache.setRequestMatcher(new AndRequestMatcher(
+                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.GET, "/**"),
+                new NegatedRequestMatcher(apiMatcher),
+                new NegatedRequestMatcher(PathPatternRequestMatcher.withDefaults().matcher("/favicon.*")),
+                new NegatedRequestMatcher(new RequestHeaderRequestMatcher("X-Requested-With", "XMLHttpRequest"))));
+
         http.authorizeHttpRequests(authorize -> authorize
                 .requestMatchers("/actuator/**").permitAll()
-                .requestMatchers("/css/**", "/js/**", "/images/**", "/error").permitAll()
+                .requestMatchers("/css/**", "/js/**", "/images/**", "/fonts/**", "/favicon.*", "/error").permitAll()
                 .anyRequest().authenticated())
             .oauth2Login(oauth2 -> oauth2
                 .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService())))
             .logout(logout -> logout
                 .logoutSuccessHandler(oidcLogoutSuccessHandler))
+            // XHRs get a bare 401 so the page can restart the login flow; everything else keeps redirecting
+            // to the IdP. The AnyRequestMatcher mapping is required: DelegatingAuthenticationEntryPoint uses
+            // the FIRST registered mapping as its no-match fallback, and this lambda runs before
+            // OAuth2LoginConfigurer.init() registers the login entry point -- so without it the 401 would
+            // become the application-wide default for any request that is not an HTML navigation.
+            .exceptionHandling(exception -> exception
+                .defaultAuthenticationEntryPointFor(
+                    new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                    apiMatcher
+                )
+                .defaultAuthenticationEntryPointFor(
+                    new LoginUrlAuthenticationEntryPoint(oidcLoginUrl(clientRegistrationRepository)),
+                    AnyRequestMatcher.INSTANCE
+                ))
+            .requestCache(cache -> cache.requestCache(requestCache))
             .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository()));
         
         return http.build();
+    }
+
+    /**
+     * Naming the login URL is unavoidable here — the catch-all entry point above needs one — but
+     * hardcoding it would duplicate the registration id from application.yml, and a silent divergence
+     * would redirect every user to a registration that does not exist. Derive it instead, and refuse to
+     * start rather than ship a broken login.
+     */
+    private String oidcLoginUrl(ClientRegistrationRepository clientRegistrationRepository) {
+        List<String> registrationIds = new ArrayList<>();
+        if (clientRegistrationRepository instanceof Iterable<?> registrations) {
+            for (Object candidate : registrations) {
+                if (candidate instanceof ClientRegistration registration
+                        && AuthorizationGrantType.AUTHORIZATION_CODE.equals(registration.getAuthorizationGrantType())) {
+                    registrationIds.add(registration.getRegistrationId());
+                }
+            }
+        }
+        if (registrationIds.size() != 1) {
+            throw new IllegalStateException("Expected exactly one authorization_code client registration, found "
+                    + registrationIds + ". Multi-provider login needs a different authentication entry point.");
+        }
+        return OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI
+                + "/" + registrationIds.get(0);
     }
 
     @Bean
