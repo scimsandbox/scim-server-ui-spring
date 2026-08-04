@@ -46,6 +46,8 @@
         if (banner && document.querySelector('.modal-backdrop.active')) {
             banner.classList.add('active');
             banner.setAttribute('aria-hidden', 'false');
+            // Lets the stylesheet keep an open dialog clear of the fixed banner.
+            document.body.classList.add('session-expired');
             return;
         }
         signInAgain();

@@ -151,6 +151,17 @@ label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bott
     z-index: 400;
 }
 .session-banner.active { display: flex; }
+/* Dialogs are centred in the viewport, so a tall one starts behind the fixed banner and its heading
+   cannot be scrolled back into view. While the banner is up, top-align dialogs below it instead.
+   7rem clears the banner at its tallest — two rows, which it reaches around 800px and below. Keep
+   that in step with .session-banner's copy and padding if either changes. */
+body.session-expired .modal-backdrop {
+    align-items: flex-start;
+    padding: 7rem 1rem 1rem;
+}
+body.session-expired .modal {
+    max-height: calc(85vh - 6rem);
+}
 /* Above .session-banner (400), .blocking-overlay (300) and .toast (200): it must hide whatever
    failure text the page paints in the moment between the 401 and the reload committing. */
 .session-reload-overlay { z-index: 500; }
