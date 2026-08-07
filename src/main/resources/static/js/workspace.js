@@ -439,8 +439,12 @@ function updateMultiValuedItem(fieldId, index, key, value) {
 
 async function loadTokens() {
     const res = await apiFetch(`${API}/workspaces/${wsId}/tokens`);
-    const tokens = await res.json();
     const list = document.getElementById('tokenList');
+    if (!res.ok) {
+        list.innerHTML = '<li class="empty-state">Failed to load tokens.</li>';
+        return;
+    }
+    const tokens = await res.json();
     if (!tokens.length) {
         list.innerHTML = '<li class="empty-state">No tokens yet. Create one to authenticate SCIM requests.</li>';
         return;
@@ -1310,14 +1314,20 @@ function closeActiveModals() {
     const groupModal = document.getElementById('groupModal');
     const detailsModal = document.getElementById('detailsModal');
     const logModal = document.getElementById('logModal');
+    // The session-expired banner has no dismiss control, so Escape is the reflex it invites -- and
+    // these three dialogs are exactly the ones holding content a close would destroy: the editors'
+    // typed input, and the one-time token value, which is never shown again. Keep them open; the
+    // banner is up precisely so that work can be copied out first. The viewers below render from
+    // state and close as usual.
+    const holdsUnrecoverableContent = document.body.classList.contains('session-expired');
 
-    if (createTokenModal.classList.contains('active')) {
+    if (!holdsUnrecoverableContent && createTokenModal.classList.contains('active')) {
         hideCreateTokenModal();
     }
-    if (userModal.classList.contains('active')) {
+    if (!holdsUnrecoverableContent && userModal.classList.contains('active')) {
         hideUserModal();
     }
-    if (groupModal.classList.contains('active')) {
+    if (!holdsUnrecoverableContent && groupModal.classList.contains('active')) {
         hideGroupModal();
     }
     if (detailsModal.classList.contains('active')) {
