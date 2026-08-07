@@ -1,6 +1,5 @@
+// apiFetch() and signInAgain() come from /js/api-client.js, loaded before this file.
 const API = '/api';
-const CSRF_TOKEN = document.querySelector('meta[name="_csrf"]')?.content;
-const CSRF_HEADER = document.querySelector('meta[name="_csrf_header"]')?.content || 'X-CSRF-TOKEN';
 
 function trimTrailingSlashes(value) {
     if (value == null) return '';
@@ -38,15 +37,6 @@ const state = {
     blockingActionInFlight: false
 };
 const PER_PAGE = 20;
-
-async function apiFetch(url, options = {}) {
-    const method = (options.method || 'GET').toUpperCase();
-    const headers = new Headers(options.headers || {});
-    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && method !== 'TRACE' && CSRF_TOKEN) {
-        headers.set(CSRF_HEADER, CSRF_TOKEN);
-    }
-    return fetch(url, {...options, headers, credentials: 'same-origin'});
-}
 
 function setActionOverlay(active, title = 'Please wait', copy = 'The request is still running.') {
     const overlay = document.getElementById('actionOverlay');

@@ -7,8 +7,9 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import de.palsoftware.scim.server.ui.TestClientRegistrationConfig;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -24,6 +25,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Import(TestClientRegistrationConfig.class)
 @SpringBootTest
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
@@ -35,8 +37,6 @@ import static org.mockito.Mockito.when;
 })
 class WorkspaceStatsCacheIntegrationTest extends PostgresIntegrationTestSupport {
 
-    @MockitoBean
-    private ClientRegistrationRepository clientRegistrationRepository;
 
     @MockitoBean
     private WorkspaceRepository workspaceRepository;

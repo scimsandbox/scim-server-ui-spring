@@ -14,9 +14,9 @@ import de.palsoftware.scim.server.ui.repository.MgmtUserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import de.palsoftware.scim.server.ui.TestClientRegistrationConfig;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.context.annotation.Import;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
@@ -30,6 +30,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@Import(TestClientRegistrationConfig.class)
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -57,8 +58,6 @@ class LazyLoadingIntegrationTest extends PostgresIntegrationTestSupport {
     @Autowired
     private MgmtUserRepository mgmtUserRepository;
 
-    @MockitoBean
-    private ClientRegistrationRepository clientRegistrationRepository;
 
     @Test
     @WithMockUser(username = "admin-user", roles = {"ADMIN"})

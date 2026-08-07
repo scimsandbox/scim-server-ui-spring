@@ -31,12 +31,6 @@
         .auto-style-17 { display:flex;gap:0.5rem;align-items:center;margin-bottom:0.75rem }
         .auto-style-18 { flex:1;padding:0.5rem 0.75rem;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text) }
         .auto-style-19 { max-width: 720px }
-        .auto-style-20 { max-width: 760px }
-        .site-footer { padding: 2rem 1rem 1.5rem; text-align: center; }
-        .site-footer-icons { display: flex; align-items: center; justify-content: center; gap: 1.25rem; }
-        .site-footer-icons a { display: inline-flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; border-radius: 50%; border: 1px solid var(--border); color: var(--text-muted); transition: color 0.2s, border-color 0.2s, background 0.2s; }
-        .site-footer-icons a:hover { color: var(--text); border-color: var(--primary); background: rgba(59,130,246,0.08); }
-        .site-footer-icons svg { width: 1.4rem; height: 1.4rem; fill: currentColor; }
     </style>
 </head>
 <body>
@@ -443,7 +437,7 @@
 
 <!-- Log Modal -->
 <div class="modal-backdrop" id="logModal">
-    <div class="modal auto-style-20" >
+    <div class="modal modal-wide">
         <h3 id="logModalTitle">Request Log</h3>
         <p class="section-title">Request</p>
         <pre class="details-pre" id="logRequest"></pre>
@@ -463,6 +457,11 @@
             <div class="blocking-overlay-copy" id="actionOverlayCopy">The request is still running.</div>
         </div>
     </output>
+</div>
+
+<div class="session-banner" id="sessionExpiredBanner" role="alert" aria-hidden="true">
+    <span>Your session expired. Copy anything you still need — unsaved changes are lost on sign-in.</span>
+    <button class="btn btn-primary btn-sm" type="button" onclick="signInAgain()">Sign in again</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -502,6 +501,7 @@
         </span>
     </a>
 </details>
+<script defer src="/js/api-client.js"></script>
 <script defer src="/js/workspace.js"></script>
 </body>
 </html>
