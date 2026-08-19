@@ -138,4 +138,22 @@ class WorkspaceManagementControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
+
+    @Test
+    void revokeToken_returnsNoContent() {
+        UUID tokenId = UUID.randomUUID();
+
+        ResponseEntity<Void> response = controller.revokeToken(workspaceId.toString(), tokenId.toString(), auth);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        verify(workspaceService).revokeToken(workspaceId, tokenId, "user@test.com", true);
+    }
+
+    @Test
+    void clearTokens_returnsNoContent() {
+        ResponseEntity<Void> response = controller.clearTokens(workspaceId.toString(), auth);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        verify(workspaceService).clearTokens(workspaceId, "user@test.com", true);
+    }
 }

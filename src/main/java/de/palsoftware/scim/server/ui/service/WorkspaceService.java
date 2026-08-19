@@ -115,13 +115,23 @@ public class WorkspaceService {
         return tokenRepository.findByWorkspaceId(workspaceId);
     }
 
+    /**
+     * Deletes the token outright rather than flagging it revoked: nothing references token rows, and
+     * both SCIM API implementations answer an unknown and a revoked token identically, so a retained
+     * row would carry no audit value.
+     */
     @Transactional
     public void revokeToken(UUID workspaceId, UUID tokenId, String actorUsername, boolean admin) {
         requireWorkspaceAccess(workspaceId, actorUsername, admin);
         WorkspaceToken token = tokenRepository.findByIdAndWorkspaceId(tokenId, workspaceId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Token not found"));
-        token.setRevoked(true);
-        tokenRepository.save(token);
+        tokenRepository.delete(token);
+    }
+
+    @Transactional
+    public void clearTokens(UUID workspaceId, String actorUsername, boolean admin) {
+        requireWorkspaceAccess(workspaceId, actorUsername, admin);
+        tokenRepository.deleteByWorkspaceId(workspaceId);
     }
 
     private String generateSecureToken() {

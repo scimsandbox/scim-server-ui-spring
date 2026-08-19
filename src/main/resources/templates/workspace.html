@@ -6,6 +6,7 @@
     <meta name="_csrf" th:content="${_csrf.token}">
     <meta name="_csrf_header" th:content="${_csrf.headerName}">
     <meta name="scim_api_base_url" th:content="${scimApiBaseUrl}">
+    <meta name="validator_url" th:content="${validatorUrl}">
     <title>SCIM Playground</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/favicon.svg}" href="/favicon.svg">
     <link rel="stylesheet" th:href="@{/fonts/fonts.css}" href="/fonts/fonts.css">
@@ -64,11 +65,20 @@
 
     <!-- Endpoints Card -->
     <div class="card">
-        <div class="card-header"><h2>SCIM Endpoints</h2></div>
+        <div class="card-header">
+            <h2>SCIM Endpoints</h2>
+        </div>
         <p class="section-title">Base URL</p>
-        <div class="endpoint-box">
-            <span id="scimBaseUrl">—</span>
-            <button class="btn btn-copy btn-sm" onclick="copyText(document.getElementById('scimBaseUrl').textContent)">Copy</button>
+        <div class="endpoint-box" style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem 1rem;">
+            <span id="scimBaseUrl" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.85rem; color: #f8fafc; flex: 1;">—</span>
+            <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                <button class="btn btn-secondary btn-sm" type="button" onclick="copyText(document.getElementById('scimBaseUrl').textContent)" data-tooltip="Copy SCIM Base URL" aria-label="Copy SCIM Base URL" style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border-radius: 6px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                </button>
+                <button class="btn btn-primary btn-sm" type="button" onclick="launchValidator('request-explorer')" data-tooltip="Open in Request Explorer" aria-label="Open in Request Explorer" style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border-radius: 6px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
+                </button>
+            </div>
         </div>
         <p class="section-title auto-style-5" >Quick Reference</p>
         <div  class="auto-style-6" >
@@ -82,14 +92,23 @@
     </div>
 
     <!-- Tokens Card -->
-    <div class="card">
+    <div class="card collapsed">
         <div class="card-header">
-            <h2>Access Tokens</h2>
-            <button class="btn btn-primary" onclick="showCreateTokenModal()">+ New Token</button>
+            <div class="title-group">
+                <h2>Access Tokens</h2>
+                <button class="card-toggle" onclick="toggleCard('tokensCard', this)">Expand</button>
+            </div>
+            <div class="auto-style-7">
+                <button class="btn btn-sm auto-style-8" onclick="refreshTokens()">Refresh</button>
+                <button class="btn btn-danger btn-sm" onclick="clearTokens()">Clear All</button>
+                <button class="btn btn-primary" onclick="showCreateTokenModal()">+ New Token</button>
+            </div>
         </div>
-        <ul class="token-list" id="tokenList">
-            <li class="empty-state">Loading...</li>
-        </ul>
+        <div class="card-body" id="tokensCard">
+            <ul class="token-list" id="tokenList">
+                <li class="empty-state">Loading...</li>
+            </ul>
+        </div>
     </div>
 
     <div class="card">
@@ -466,11 +485,6 @@
 
 <div class="toast" id="toast"></div>
 <footer class="site-footer">
-    <div style="margin-bottom: 1rem;">
-        <a th:href="${validatorUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 0.5rem; color: var(--text-muted); text-decoration: none; font-weight: 500; font-size: 0.95rem;">
-            <img th:src="|${validatorUrl}/favicon.svg|" alt="Favicon" style="width: 1.25rem; height: 1.25rem; border-radius: 0.25rem;"> Validator App
-        </a>
-    </div>
     <nav class="site-footer-icons" aria-label="Legal and contact links">
         <a href="https://scimsandbox.github.io/scim-app-policy/terms.html" target="_blank" rel="noopener noreferrer" aria-label="Terms of Service" title="Terms of Service">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M1 21h12v2H1zM5.245 8.07l2.83-2.827 14.14 14.142-2.828 2.828zM12.317 1l5.657 5.656-2.83 2.83-5.654-5.66zM3.825 9.485l5.657 5.657-2.828 2.828-5.657-5.657z"/></svg>
@@ -489,6 +503,15 @@
         </a>
     </nav>
 </footer>
+<!-- Floating Side Dock -->
+<aside class="floating-side-dock" aria-label="Quick Navigation">
+    <a th:href="|${validatorUrl}/request-explorer|" href="https://val.scimsandbox.net/request-explorer" target="_blank" rel="noopener noreferrer" class="floating-side-btn" data-tooltip="Request explorer" data-tooltip-pos="left" aria-label="Request explorer">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
+    </a>
+    <a th:href="${validatorUrl}" href="https://val.scimsandbox.net/" target="_blank" rel="noopener noreferrer" class="floating-side-btn" data-tooltip="Compliance suite" data-tooltip-pos="left" aria-label="Compliance suite">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+    </a>
+</aside>
 <details class="bmc-widget">
     <summary aria-label="Buy me a coffee">
         <img th:src="@{/images/buy-me-a-coffee-icon.svg}" src="/images/buy-me-a-coffee-icon.svg" alt="Buy Me a Coffee icon">

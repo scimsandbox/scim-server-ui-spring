@@ -362,6 +362,149 @@ body.session-expired .modal {
     to { transform: rotate(360deg); }
 }
 
+/* Fast CSS Tooltips */
+[data-tooltip] {
+    position: relative;
+}
+[data-tooltip]::before,
+[data-tooltip]::after {
+    position: absolute;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.12s ease-out, transform 0.12s ease-out, visibility 0.12s;
+    z-index: 1000;
+}
+[data-tooltip]::after {
+    content: attr(data-tooltip);
+    bottom: calc(100% + 7px);
+    left: 50%;
+    transform: translateX(-50%) translateY(3px);
+    background: #0f172a;
+    color: #f8fafc;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: normal;
+    white-space: nowrap;
+    padding: 4px 8px;
+    border-radius: 5px;
+    border: 1px solid #475569;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+[data-tooltip]::before {
+    content: '';
+    bottom: calc(100% + 1px);
+    left: 50%;
+    transform: translateX(-50%) translateY(3px);
+    border: 4px solid transparent;
+    border-top-color: #475569;
+}
+[data-tooltip]:hover::before,
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::before,
+[data-tooltip]:focus-visible::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+    transition-delay: 40ms;
+}
+
+/* Tooltip on Left */
+[data-tooltip-pos="left"]::after {
+    bottom: auto;
+    top: 50%;
+    right: calc(100% + 8px);
+    left: auto;
+    transform: translateY(-50%) translateX(3px);
+}
+[data-tooltip-pos="left"]::before {
+    bottom: auto;
+    top: 50%;
+    right: calc(100% + 2px);
+    left: auto;
+    transform: translateY(-50%) translateX(3px);
+    border: 4px solid transparent;
+    border-left-color: #475569;
+}
+[data-tooltip-pos="left"]:hover::before,
+[data-tooltip-pos="left"]:hover::after,
+[data-tooltip-pos="left"]:focus-visible::before,
+[data-tooltip-pos="left"]:focus-visible::after {
+    transform: translateY(-50%) translateX(0);
+}
+
+/* Floating Side Dock with 10s periodic subtle glow (3s duration) */
+@keyframes dock-container-pulse {
+    0% {
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+        border-color: transparent;
+    }
+    15% { /* Peak of 3s glow */
+        box-shadow:
+            0 0 28px 4px rgba(59, 130, 246, 0.5),
+            0 0 12px 2px rgba(147, 197, 253, 0.35),
+            0 10px 30px rgba(0, 0, 0, 0.4);
+        border-color: rgba(96, 165, 250, 0.45);
+    }
+    30% { /* End of 3s glow */
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+        border-color: transparent;
+    }
+    100% { /* 7s quiet rest before repeating */
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+        border-color: transparent;
+    }
+}
+
+.floating-side-dock {
+    position: fixed;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 95;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: rgba(30, 41, 59, 0.8);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    border: 1px solid transparent;
+    border-radius: 14px;
+    padding: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    animation: dock-container-pulse 10s ease-in-out infinite;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.floating-side-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 50px;
+    height: 50px;
+    border-radius: 12px;
+    border: none;
+    outline: none;
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.floating-side-btn:hover {
+    background: var(--primary) !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 24px rgba(59, 130, 246, 0.85) !important;
+    transform: scale(1.12) !important;
+}
+
+.floating-side-btn svg {
+    width: 24px;
+    height: 24px;
+}
+
 @media (max-width: 720px) {
     .generate-controls,
     .stats-grid,

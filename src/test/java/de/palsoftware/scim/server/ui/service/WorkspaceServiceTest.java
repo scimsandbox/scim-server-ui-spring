@@ -249,11 +249,10 @@ class WorkspaceServiceTest {
         WorkspaceToken token = new WorkspaceToken();
         when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
         when(tokenRepository.findByIdAndWorkspaceId(tokenId, workspaceId)).thenReturn(Optional.of(token));
-        when(tokenRepository.save(any(WorkspaceToken.class))).thenAnswer(i -> i.getArgument(0));
 
         service.revokeToken(workspaceId, tokenId, "admin", true);
 
-        assertThat(token.isRevoked()).isTrue();
+        verify(tokenRepository).delete(token);
     }
 
     @Test
@@ -264,6 +263,17 @@ class WorkspaceServiceTest {
 
         assertThatThrownBy(() -> service.revokeToken(workspaceId, tokenId, "admin", true))
                 .isInstanceOf(ResponseStatusException.class);
+    }
+
+    // ─── clearTokens ────────────────────────────────────────────────────
+
+    @Test
+    void clearTokens_success() {
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
+
+        service.clearTokens(workspaceId, "admin", true);
+
+        verify(tokenRepository).deleteByWorkspaceId(workspaceId);
     }
 
 }

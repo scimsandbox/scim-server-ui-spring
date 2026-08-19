@@ -13,6 +13,19 @@ function trimTrailingSlashes(value) {
 const SCIM_API_BASE_URL = trimTrailingSlashes(
     document.querySelector('meta[name="scim_api_base_url"]')?.content || 'http://localhost:8080'
 );
+const VALIDATOR_URL = trimTrailingSlashes(
+    document.querySelector('meta[name="validator_url"]')?.content || 'http://localhost:18082'
+);
+// Bearer tokens are handed to the validator over postMessage, so the message must be addressed to
+// the validator's origin - never '*', which would deliver it to whatever page the tab currently
+// shows (an identity provider mid-login, for example).
+const VALIDATOR_ORIGIN = (() => {
+    try {
+        return new URL(VALIDATOR_URL, globalThis.location.href).origin;
+    } catch {
+        return null;
+    }
+})();
 const wsId = globalThis.location.pathname.split('/').pop();
 const state = {
     users: [],
@@ -463,6 +476,30 @@ async function loadTokens() {
     `).join('');
 }
 
+async function refreshTokens() {
+    await runBlockingAction('Refreshing tokens', async () => {
+        await loadTokens();
+        toast('Tokens refreshed');
+    });
+}
+
+async function clearTokens() {
+    if (!confirm('Clear all access tokens for this workspace?')) return;
+    await runBlockingAction('Clearing tokens', async () => {
+        const res = await apiFetch(`${API}/workspaces/${wsId}/tokens`, {method: 'DELETE'});
+        if (!res.ok) {
+            const msg = await res.text();
+            toast(msg || 'Failed to clear tokens');
+            return;
+        }
+        toast('Tokens cleared');
+        await Promise.all([
+            loadTokens(),
+            refreshWorkspaceStats()
+        ]);
+    });
+}
+
 async function loadLogs(showToast = false) {
     await loadLogsPage(1, showToast);
 }
@@ -582,6 +619,89 @@ async function revokeToken(id, name) {
             loadTokens(),
             refreshWorkspaceStats()
         ]);
+    });
+}
+
+async function launchValidator(target = 'request-explorer') {
+    const rawEndpoint = document.getElementById('scimBaseUrl')?.textContent?.trim();
+    const baseUrl = (rawEndpoint && rawEndpoint !== '—') ? rawEndpoint : `${SCIM_API_BASE_URL}/ws/${wsId}/scim/v2`;
+
+    await runBlockingAction('Generating test token & launching...', async () => {
+        const nowStr = new Date().toLocaleDateString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+        const tokenName = `Validator Session (${nowStr})`;
+        const res = await apiFetch(`${API}/workspaces/${wsId}/tokens`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ name: tokenName, description: 'Auto-generated for Validator testing session' })
+        });
+
+        if (!res.ok) {
+            toast('Failed to generate test token');
+            return;
+        }
+
+        let data;
+        try {
+            data = await res.json();
+        } catch {
+            toast('Token was created, but response could not be read');
+            return;
+        }
+
+        const rawToken = typeof data?.token === 'string' ? data.token.trim() : '';
+        if (!rawToken) {
+            toast('No token received');
+            return;
+        }
+
+        const targetPath = (target === 'test-suite' || target === 'suite') ? '/' : '/request-explorer';
+        const targetUrl = `${VALIDATOR_URL}${targetPath}#url=${encodeURIComponent(baseUrl)}&token=${encodeURIComponent(rawToken)}`;
+
+        // Open in new tab
+        const valWin = window.open(targetUrl, '_blank');
+        if (!valWin) {
+            // The token was already minted, so surface it rather than reporting a launch that never happened.
+            await Promise.all([
+                loadTokens(),
+                refreshWorkspaceStats()
+            ]);
+            toast('Popup blocked - allow popups for this site. The generated token is in the token list.');
+            return;
+        }
+
+        // PostMessage handshake as memory-to-memory backup
+        if (VALIDATOR_ORIGIN) {
+            let attempts = 0;
+            const onAck = (event) => {
+                if (event.origin === VALIDATOR_ORIGIN && event.data && event.data.type === 'SCIM_VALIDATOR_ACK') {
+                    clearInterval(interval);
+                    window.removeEventListener('message', onAck);
+                }
+            };
+            window.addEventListener('message', onAck);
+
+            const interval = setInterval(() => {
+                attempts++;
+                if (attempts > 20 || valWin.closed) {
+                    clearInterval(interval);
+                    window.removeEventListener('message', onAck);
+                    return;
+                }
+                try {
+                    valWin.postMessage({
+                        type: 'SCIM_VALIDATOR_INIT',
+                        baseUrl: baseUrl,
+                        authToken: rawToken
+                    }, VALIDATOR_ORIGIN);
+                } catch (e) {}
+            }, 250);
+        }
+
+        await Promise.all([
+            loadTokens(),
+            refreshWorkspaceStats()
+        ]);
+        toast('Validator launched with workspace credentials!');
     });
 }
 

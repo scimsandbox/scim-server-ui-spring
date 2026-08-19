@@ -157,6 +157,19 @@ public class ApiWorkspacesController {
                 return ResponseEntity.noContent().build();
         }
 
+        @DeleteMapping("/workspaces/{workspaceId}/tokens")
+        public ResponseEntity<Void> clearTokens(
+                        @PathVariable String workspaceId,
+                        Authentication authentication) {
+                String actorEmail = AuthenticatedUser.email(authentication);
+                boolean admin = AuthenticatedUser.isAdmin(authentication);
+                workspaceService.clearTokens(
+                                UUID.fromString(workspaceId),
+                                actorEmail,
+                                admin);
+                return ResponseEntity.noContent().build();
+        }
+
         @PostMapping("/workspaces/{workspaceId}/generate/{kind}")
         public ResponseEntity<Map<String, Object>> generateData(
                         @PathVariable String workspaceId,
