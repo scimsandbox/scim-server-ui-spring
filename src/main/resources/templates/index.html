@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="_csrf" th:content="${_csrf.token}">
     <meta name="_csrf_header" th:content="${_csrf.headerName}">
-    <title>SCIM Playground</title>
+    <title>SCIM Server Manager</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/favicon.svg}" href="/favicon.svg">
     <link rel="stylesheet" th:href="@{/fonts/fonts.css}" href="/fonts/fonts.css">
     <link rel="stylesheet" th:href="@{/css/workspace.css}" href="/css/workspace.css">
@@ -28,7 +28,7 @@
 <div class="container">
     <header class="site-header">
         <div class="site-header-brand">
-            <h1>SCIM Playground</h1>
+            <h1>SCIM Server Manager</h1>
         </div>
         <div class="site-header-user">
             <span class="user-name" th:text="${currentUser} + ' (' + ${currentUserRole} + ')'">User (Role)</span>
@@ -372,11 +372,11 @@ try {
 </footer>
 <!-- Floating Side Dock -->
 <aside class="floating-side-dock" aria-label="Quick Navigation">
-    <a th:href="|${validatorUrl}/request-explorer|" href="https://val.scimsandbox.net/request-explorer" target="_blank" rel="noopener noreferrer" class="floating-side-btn" data-tooltip="Request explorer" data-tooltip-pos="left" aria-label="Request explorer">
+    <a th:href="|${validatorUrl}/playground|" href="https://val.scimsandbox.net/playground" target="_blank" rel="noopener noreferrer" class="floating-side-btn" data-tooltip="SCIM Playground" data-tooltip-pos="left" aria-label="SCIM Playground">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
     </a>
-    <a th:href="${validatorUrl}" href="https://val.scimsandbox.net/" target="_blank" rel="noopener noreferrer" class="floating-side-btn" data-tooltip="Compliance suite" data-tooltip-pos="left" aria-label="Compliance suite">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+    <a th:href="${validatorUrl}" href="https://val.scimsandbox.net/" target="_blank" rel="noopener noreferrer" class="floating-side-btn" data-tooltip="SCIM Compliance" data-tooltip-pos="left" aria-label="SCIM Compliance">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 2 2 4-4"></path><path d="m3 7 2 2 4-4"></path><path d="M13 6h8"></path><path d="M13 12h8"></path><path d="M13 18h8"></path></svg>
     </a>
 </aside>
 <details class="bmc-widget">

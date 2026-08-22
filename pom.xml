@@ -8,7 +8,7 @@
     <packaging>jar</packaging>
 
     <name>SCIM Server UI</name>
-    <description>Management UI and API for SCIM Playground</description>
+    <description>Management UI and API for SCIM Server Manager</description>
 
     <scm>
         <connection>scm:git:https://github.com/scimsandbox/scim-server-ui-spring.git</connection>

@@ -1,7 +1,7 @@
 # SCIM Sandbox - Server UI Spring
 
-This repository contains the Spring Boot management UI and management API for
-the SCIM sandbox.
+This repository contains **SCIM Server Manager**, the Spring Boot management UI
+and management API for the SCIM sandbox.
 
 ## What This Repo Contains
 

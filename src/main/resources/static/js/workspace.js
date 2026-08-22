@@ -622,7 +622,7 @@ async function revokeToken(id, name) {
     });
 }
 
-async function launchValidator(target = 'request-explorer') {
+async function launchValidator(target = 'playground') {
     const rawEndpoint = document.getElementById('scimBaseUrl')?.textContent?.trim();
     const baseUrl = (rawEndpoint && rawEndpoint !== '—') ? rawEndpoint : `${SCIM_API_BASE_URL}/ws/${wsId}/scim/v2`;
 
@@ -654,7 +654,7 @@ async function launchValidator(target = 'request-explorer') {
             return;
         }
 
-        const targetPath = (target === 'test-suite' || target === 'suite') ? '/' : '/request-explorer';
+        const targetPath = (target === 'test-suite' || target === 'suite') ? '/' : '/playground';
         const targetUrl = `${VALIDATOR_URL}${targetPath}#url=${encodeURIComponent(baseUrl)}&token=${encodeURIComponent(rawToken)}`;
 
         // Open in new tab
