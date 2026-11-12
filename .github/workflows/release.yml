@@ -3,15 +3,18 @@ name: Release
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-  packages: write
+permissions: {}
 
 jobs:
   release:
     name: Validate, tag, and publish release
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: write
+      packages: write
+    outputs:
+      tag_name: ${{ steps.version.outputs.tag_name }}
 
     steps:
       - name: Verify main branch
@@ -24,11 +27,18 @@ jobs:
             exit 1
           fi
 
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Set up JDK 25
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
@@ -47,8 +57,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "scimsandbox-release-bot[bot]"
+          git config user.email "5655615+scimsandbox-release-bot[bot]@users.noreply.github.com"
 
       - name: Resolve release version
         id: version
@@ -79,6 +89,37 @@ jobs:
             exit 1
           fi
 
+      - name: Validate build and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mvn -B -ntp clean verify
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Build image for pre-release scan
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: scim-server-ui-spring:pre-release-scan
+
+      - name: Enforce pre-release Trivy vulnerability gate
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: scim-server-ui-spring:pre-release-scan
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          trivyignores: ".trivyignore"
+          ignore-unfixed: true
+          vuln-type: os,library
+
       - name: Release with Maven Release Plugin
         shell: bash
         env:
@@ -98,9 +139,9 @@ jobs:
           mkdir -p dist
           git archive --format=tar.gz --output "dist/scim-server-ui-spring-${{ steps.version.outputs.release_version }}.tar.gz" "${{ steps.version.outputs.tag_name }}"
 
-      - name: Create GitHub Release
+      - name: Create GitHub release
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -111,3 +152,35 @@ jobs:
             --title "${{ steps.version.outputs.tag_name }}" \
             "dist/scim-server-ui-spring-${{ steps.version.outputs.release_version }}.tar.gz#scim-server-ui-spring-${{ steps.version.outputs.release_version }}.tar.gz" \
             "target/checkout/target/scim-server-ui-spring-${{ steps.version.outputs.release_version }}.jar#scim-server-ui-spring-${{ steps.version.outputs.release_version }}.jar"
+
+  attest:
+    name: Attest release artifacts
+    needs:
+      - release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.release.outputs.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+          gh release download "${TAG_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern "*.tar.gz" \
+            --pattern "*.jar" \
+            --dir dist
+
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: "dist/*"
