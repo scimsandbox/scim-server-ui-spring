@@ -67,6 +67,8 @@ class TemplateRenderingTest extends PostgresIntegrationTestSupport {
     private static void assertSharedAssets(String html) {
         assertThat(html).contains("/js/api-client.js");
         assertThat(html).contains("/css/workspace.css");
+        assertThat(html).contains("floating-side-btn-news");
+        assertThat(html).contains("/#news");
         assertThat(html).contains("id=\"sessionExpiredBanner\"");
         assertThat(html).contains("signInAgain()");
         assertThat(html)

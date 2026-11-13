@@ -19,6 +19,9 @@ public class UiController {
     private final String scimApiBaseUrl;
     private final String validatorUrl;
 
+    @Value("${app.website.url:https://scimsandbox.net}")
+    private String websiteUrl = "https://scimsandbox.net";
+
     public UiController(MgmtUserService mgmtUserService,
             @Value("${app.scim-api.base.url}") String scimApiBaseUrl,
             @Value("${app.validator.url}") String validatorUrl) {
@@ -32,6 +35,7 @@ public class UiController {
         model.addAttribute("currentUser", resolveDisplayName(authentication));
         model.addAttribute("currentUserRole", AuthenticatedUser.isAdmin(authentication) ? "Admin" : "User");
         model.addAttribute("validatorUrl", validatorUrl);
+        model.addAttribute("websiteUrl", websiteUrl);
         return "index";
     }
 
@@ -47,6 +51,7 @@ public class UiController {
         model.addAttribute("currentUserRole", AuthenticatedUser.isAdmin(authentication) ? "Admin" : "User");
         model.addAttribute("scimApiBaseUrl", scimApiBaseUrl);
         model.addAttribute("validatorUrl", validatorUrl);
+        model.addAttribute("websiteUrl", websiteUrl);
     }
 
     private String resolveDisplayName(Authentication authentication) {
