@@ -33,6 +33,7 @@ import static org.mockito.Mockito.when;
         "AUTH0_CLIENT_SECRET=test-secret",
         "AUTH0_REDIRECT_URI=https://ui.scimsandbox.net/login/oauth2/code/auth0",
         "AUTH0_ISSUER_URI=https://test.auth0.com/",
+        "APP_WEBSITE_URL=https://website.example.test",
         "app.stats.cache-ttl=PT5M"
 })
 class WorkspaceStatsCacheIntegrationTest extends PostgresIntegrationTestSupport {

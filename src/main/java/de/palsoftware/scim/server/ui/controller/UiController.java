@@ -18,16 +18,28 @@ public class UiController {
     private final MgmtUserService mgmtUserService;
     private final String scimApiBaseUrl;
     private final String validatorUrl;
-
-    @Value("${app.website.url:https://scimsandbox.net}")
-    private String websiteUrl = "https://scimsandbox.net";
+    private final String websiteUrl;
 
     public UiController(MgmtUserService mgmtUserService,
             @Value("${app.scim-api.base.url}") String scimApiBaseUrl,
-            @Value("${app.validator.url}") String validatorUrl) {
+            @Value("${app.validator.url}") String validatorUrl,
+            @Value("${app.website.url}") String websiteUrl) {
         this.mgmtUserService = mgmtUserService;
         this.scimApiBaseUrl = scimApiBaseUrl;
         this.validatorUrl = validatorUrl;
+        this.websiteUrl = normalizeWebsiteUrl(websiteUrl);
+    }
+
+    /**
+     * The website URL is required configuration. It is concatenated with fixed paths in the templates,
+     * so trailing slashes are stripped here to avoid {@code //news/index.json}.
+     */
+    private static String normalizeWebsiteUrl(String websiteUrl) {
+        String normalized = websiteUrl == null ? "" : websiteUrl.trim().replaceAll("/+$", "");
+        if (normalized.isEmpty()) {
+            throw new IllegalStateException("app.website.url (APP_WEBSITE_URL) must be set to the public website base URL");
+        }
+        return normalized;
     }
 
     @GetMapping("/")

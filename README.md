@@ -103,6 +103,7 @@ small set of app-specific settings.
 | `AUTH0_ISSUER_URI` | yes | Auth0 issuer URI |
 | `AUTH0_REDIRECT_URI` | yes | OAuth redirect URI used by Spring Security |
 | `APP_SCIM_API_BASE_URL` | no | External SCIM API base URL shown in the UI. Default: `http://localhost:8080` |
+| `APP_WEBSITE_URL` | yes | Public SCIM Sandbox website base URL (e.g. `https://scimsandbox.net`); used for the What's New link and `/news/index.json` feed |
 | `APP_TOKEN_DEFAULT_VALIDITY` | no | ISO-8601 duration for new token lifetime. Default: `P30D` (30 days) |
 | `APP_SECURITY_OIDC_ROLE_CLAIM` | no | Claim used to extract roles. Default: `https://scimplayground.dev/roles` |
 | `APP_SECURITY_OIDC_ADMIN_ROLE` | no | Role value mapped to `ROLE_ADMIN`. Default: `admin` |

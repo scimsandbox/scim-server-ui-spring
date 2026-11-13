@@ -99,4 +99,4 @@ app:
     url: http://localhost:8081
 
   website:
-    url: ${APP_WEBSITE_URL:https://scimsandbox.net}
+    url: ${APP_WEBSITE_URL}
