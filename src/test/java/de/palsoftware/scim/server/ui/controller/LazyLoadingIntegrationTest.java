@@ -39,7 +39,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     "AUTH0_CLIENT_ID=test-client",
     "AUTH0_CLIENT_SECRET=test-secret",
     "AUTH0_REDIRECT_URI=https://ui.scimsandbox.net/login/oauth2/code/auth0",
-    "AUTH0_ISSUER_URI=https://test.auth0.com/"
+    "AUTH0_ISSUER_URI=https://test.auth0.com/",
+    "APP_WEBSITE_URL=https://website.example.test"
 })
 class LazyLoadingIntegrationTest extends PostgresIntegrationTestSupport {
 

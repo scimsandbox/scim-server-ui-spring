@@ -32,7 +32,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     "AUTH0_CLIENT_ID=test-client",
     "AUTH0_CLIENT_SECRET=test-secret",
     "AUTH0_REDIRECT_URI=https://ui.scimsandbox.net/login/oauth2/code/auth0",
-    "AUTH0_ISSUER_URI=https://test.auth0.com/"
+    "AUTH0_ISSUER_URI=https://test.auth0.com/",
+    // Trailing slash on purpose: UiController must normalize it so links never contain "//".
+    "APP_WEBSITE_URL=https://website.example.test/"
 })
 class TemplateRenderingTest extends PostgresIntegrationTestSupport {
 
@@ -67,6 +69,12 @@ class TemplateRenderingTest extends PostgresIntegrationTestSupport {
     private static void assertSharedAssets(String html) {
         assertThat(html).contains("/js/api-client.js");
         assertThat(html).contains("/css/workspace.css");
+        assertThat(html).contains("/js/dock-news.js");
+        assertThat(html).contains("floating-side-btn-news");
+        assertThat(html)
+                .as("the news link and feed must be built from the configured website URL, without a doubled slash")
+                .contains("href=\"https://website.example.test/#news\"")
+                .contains("data-news-feed-url=\"https://website.example.test/news/index.json\"");
         assertThat(html).contains("id=\"sessionExpiredBanner\"");
         assertThat(html).contains("signInAgain()");
         assertThat(html)

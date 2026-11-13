@@ -54,6 +54,11 @@
       "name": "app.scim-api.base.url",
       "type": "java.lang.String",
       "description": "Base URL for the SCIM API."
+    },
+    {
+      "name": "app.website.url",
+      "type": "java.lang.String",
+      "description": "Public base URL for the SCIM Sandbox website and news feed."
     }
   ]
 }

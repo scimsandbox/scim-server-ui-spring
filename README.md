@@ -103,6 +103,7 @@ small set of app-specific settings.
 | `AUTH0_ISSUER_URI` | yes | Auth0 issuer URI |
 | `AUTH0_REDIRECT_URI` | yes | OAuth redirect URI used by Spring Security |
 | `APP_SCIM_API_BASE_URL` | no | External SCIM API base URL shown in the UI. Default: `http://localhost:8080` |
+| `APP_WEBSITE_URL` | yes | Public SCIM Sandbox website base URL (e.g. `https://scimsandbox.net`); used for the What's New link and `/news/index.json` feed |
 | `APP_TOKEN_DEFAULT_VALIDITY` | no | ISO-8601 duration for new token lifetime. Default: `P30D` (30 days) |
 | `APP_SECURITY_OIDC_ROLE_CLAIM` | no | Claim used to extract roles. Default: `https://scimplayground.dev/roles` |
 | `APP_SECURITY_OIDC_ADMIN_ROLE` | no | Role value mapped to `ROLE_ADMIN`. Default: `admin` |
@@ -128,6 +129,7 @@ export AUTH0_CLIENT_SECRET=your-auth0-client-secret
 export AUTH0_ISSUER_URI=https://your-tenant.us.auth0.com/
 export AUTH0_REDIRECT_URI=http://localhost:8080/login/oauth2/code/auth0
 export APP_SCIM_API_BASE_URL=http://localhost:8080
+export APP_WEBSITE_URL=https://scimsandbox.net
 ```
 
 If you want the UI on `8081`, also set:
@@ -183,6 +185,7 @@ docker run --rm \
   -e AUTH0_CLIENT_SECRET=your-auth0-client-secret \
   -e AUTH0_ISSUER_URI=https://your-tenant.us.auth0.com/ \
   -e AUTH0_REDIRECT_URI=http://localhost:8081/login/oauth2/code/auth0 \
+  -e APP_WEBSITE_URL=https://scimsandbox.net \
   scim-server-ui
 ```
 
