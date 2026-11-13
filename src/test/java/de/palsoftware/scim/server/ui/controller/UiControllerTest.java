@@ -1,6 +1,8 @@
 package de.palsoftware.scim.server.ui.controller;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.ui.ConcurrentModel;
 import org.springframework.ui.Model;
 
@@ -38,5 +40,23 @@ class UiControllerTest {
         assertThatThrownBy(() -> controller("  /  "))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("app.website.url");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {" https:// ", "https:", "scimsandbox.net", "//scimsandbox.net", "ftp://scimsandbox.net",
+            "javascript:alert(1)", "https://sci msandbox.net"})
+    void rejectsValuesThatAreNotAnAbsoluteHttpUrlWithAHost(String value) {
+        assertThatThrownBy(() -> controller(value))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("absolute http(s) URL");
+    }
+
+    @Test
+    void acceptsHttpUrlsWithPortAndPath() {
+        Model model = new ConcurrentModel();
+
+        controller("http://localhost:8099/site/").index(model, null);
+
+        assertThat(model.getAttribute("websiteUrl")).isEqualTo("http://localhost:8099/site");
     }
 }

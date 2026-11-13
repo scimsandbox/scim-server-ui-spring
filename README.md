@@ -129,6 +129,7 @@ export AUTH0_CLIENT_SECRET=your-auth0-client-secret
 export AUTH0_ISSUER_URI=https://your-tenant.us.auth0.com/
 export AUTH0_REDIRECT_URI=http://localhost:8080/login/oauth2/code/auth0
 export APP_SCIM_API_BASE_URL=http://localhost:8080
+export APP_WEBSITE_URL=https://scimsandbox.net
 ```
 
 If you want the UI on `8081`, also set:
@@ -184,6 +185,7 @@ docker run --rm \
   -e AUTH0_CLIENT_SECRET=your-auth0-client-secret \
   -e AUTH0_ISSUER_URI=https://your-tenant.us.auth0.com/ \
   -e AUTH0_REDIRECT_URI=http://localhost:8081/login/oauth2/code/auth0 \
+  -e APP_WEBSITE_URL=https://scimsandbox.net \
   scim-server-ui
 ```
 

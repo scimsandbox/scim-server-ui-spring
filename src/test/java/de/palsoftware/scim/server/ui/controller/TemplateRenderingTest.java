@@ -69,6 +69,7 @@ class TemplateRenderingTest extends PostgresIntegrationTestSupport {
     private static void assertSharedAssets(String html) {
         assertThat(html).contains("/js/api-client.js");
         assertThat(html).contains("/css/workspace.css");
+        assertThat(html).contains("/js/dock-news.js");
         assertThat(html).contains("floating-side-btn-news");
         assertThat(html)
                 .as("the news link and feed must be built from the configured website URL, without a doubled slash")

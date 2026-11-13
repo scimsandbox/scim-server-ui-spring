@@ -9,6 +9,9 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 
+import java.net.URI;
+import java.net.URISyntaxException;
+
 /**
  * Server-side rendered management UI using Thymeleaf.
  */
@@ -31,15 +34,29 @@ public class UiController {
     }
 
     /**
-     * The website URL is required configuration. It is concatenated with fixed paths in the templates,
-     * so trailing slashes are stripped here to avoid {@code //news/index.json}.
+     * The website URL is required configuration. It is concatenated with fixed paths in the templates
+     * and used as a link target, so it must be an absolute http(s) URL with a host, and trailing
+     * slashes are stripped to avoid {@code //news/index.json}.
      */
     private static String normalizeWebsiteUrl(String websiteUrl) {
-        String normalized = websiteUrl == null ? "" : websiteUrl.trim().replaceAll("/+$", "");
-        if (normalized.isEmpty()) {
-            throw new IllegalStateException("app.website.url (APP_WEBSITE_URL) must be set to the public website base URL");
+        String normalized = websiteUrl == null ? "" : websiteUrl.trim();
+        int end = normalized.length();
+        while (end > 0 && normalized.charAt(end - 1) == '/') {
+            end--;
         }
-        return normalized;
+        normalized = normalized.substring(0, end);
+        try {
+            URI uri = new URI(normalized);
+            String scheme = uri.getScheme();
+            boolean http = "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
+            if (http && uri.getHost() != null) {
+                return normalized;
+            }
+        } catch (URISyntaxException ex) {
+            // fall through to the descriptive error below
+        }
+        throw new IllegalStateException(
+                "app.website.url (APP_WEBSITE_URL) must be an absolute http(s) URL, e.g. https://scimsandbox.net");
     }
 
     @GetMapping("/")
