@@ -1,6 +1,7 @@
 package de.palsoftware.scim.server.ui.utils;
 
 import de.palsoftware.scim.server.ui.model.ScimRequestLog;
+import de.palsoftware.scim.server.ui.model.Workspace;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -95,5 +96,57 @@ class LogResponseMapperTest {
                 .contains("\"password\":\"[REDACTED]\"")
                 .doesNotContain("secret-header-token-999")
                 .doesNotContain("UnclosedJsonPassword");
+    }
+
+    @Test
+    void redactSensitiveBodyHandlesEscapedQuotesLargePayloadsAndTruncatedStringsInLinearTime() {
+        String largeEscapedSecret = ("a\\\"b\\\\".repeat(10_000)) + "tailSecret";
+        String malformed = "{\"password\" : \"" + largeEscapedSecret + "\", \"refresh_token\":\"rt-123\"";
+
+        String redacted = LogResponseMapper.redactSensitiveBody(malformed);
+
+        assertThat(redacted)
+                .isEqualTo("{\"password\" : \"[REDACTED]\", \"refresh_token\":\"[REDACTED]\"");
+
+        String truncatedMidPassword = "{\"userName\":\"bob\",\"password\":\"TruncatedWithoutClosingQuote\r\n";
+        assertThat(LogResponseMapper.redactSensitiveBody(truncatedMidPassword))
+                .isEqualTo("{\"userName\":\"bob\",\"password\":\"[REDACTED]\r\n");
+    }
+
+    @Test
+    void redactSensitiveBodyHandlesAuthorizationHeaderEdgeCasesAndJsonArrays() {
+        String headers = "\tAuthorization\t:\tBasic dXNlcjpwYXNz==\r\n"
+                + "Authorization:   \r\n"
+                + "Authorization-Extra: keep-me\r\n"
+                + "X-Note: nothing sensitive here";
+
+        String redactedHeaders = LogResponseMapper.redactSensitiveBody(headers);
+        assertThat(redactedHeaders)
+                .contains("\tAuthorization\t:\t[REDACTED]\r\n")
+                .contains("Authorization:   \r\n")
+                .contains("Authorization-Extra: keep-me\r\n")
+                .doesNotContain("dXNlcjpwYXNz==");
+
+        String jsonArray = "[\"Bearer token-in-array\", {\"id_token\": \"jwt-secret\", \"empty\": null}, \"plain\"]";
+        assertThat(LogResponseMapper.redactSensitiveBody(jsonArray))
+                .contains("Bearer [REDACTED]")
+                .contains("\"id_token\":\"[REDACTED]\"")
+                .doesNotContain("token-in-array")
+                .doesNotContain("jwt-secret");
+
+        String cleanJson = "{\"id\":\"1\",\"userName\":\"alice\"}";
+        assertThat(LogResponseMapper.redactSensitiveBody(cleanJson)).isSameAs(cleanJson);
+        assertThat(LogResponseMapper.redactSensitiveBody(null)).isNull();
+        assertThat(LogResponseMapper.redactSensitiveBody("   ")).isEqualTo("   ");
+
+        Workspace ws = new Workspace();
+        UUID wsId = UUID.randomUUID();
+        ws.setId(wsId);
+        ScimRequestLog logWithWorkspace = new ScimRequestLog();
+        logWithWorkspace.setWorkspace(ws);
+        assertThat(LogResponseMapper.logToMap(logWithWorkspace))
+                .containsEntry("workspaceId", wsId.toString())
+                .containsEntry("id", null)
+                .containsEntry("createdAt", null);
     }
 }

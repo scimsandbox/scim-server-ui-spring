@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class LogResponseMapper {
@@ -19,6 +20,7 @@ public final class LogResponseMapper {
 
     public static final String REDACTED = "[REDACTED]";
     private static final String KEY_CREATED_AT = "createdAt";
+    private static final String AUTH_HEADER_NAME = "authorization";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private static final Set<String> SENSITIVE_KEYS = Set.of(
@@ -29,14 +31,11 @@ public final class LogResponseMapper {
             "refresh_token",
             "id_token");
 
-    private static final Pattern JSON_KEY_FALLBACK_PATTERN = Pattern.compile(
-            "(?i)(\"(?:password|access_token|client_secret|authorization|refresh_token|id_token)\"\\s*:\\s*\")(?:\\\\.|[^\"\\\\])*(\")");
-
-    private static final Pattern AUTH_HEADER_LINE_PATTERN = Pattern.compile(
-            "(?im)^(\\s*authorization\\s*:\\s*)([^\\r\\n]+)$");
+    private static final Pattern JSON_SENSITIVE_KEY_PREFIX = Pattern.compile(
+            "(?i)\"(?:password|access_token|client_secret|authorization|refresh_token|id_token)\"[ \\t\\r\\n]*+:[ \\t\\r\\n]*+\"");
 
     private static final Pattern BEARER_BASIC_TOKEN_PATTERN = Pattern.compile(
-            "(?i)\\b((?:Bearer|Basic)\\s+)[A-Za-z0-9._~+/=-]+");
+            "(?i)\\b((?:Bearer|Basic)[ \\t]++)[A-Za-z0-9._~+/=-]++");
 
     public static Map<String, Object> logToMap(ScimRequestLog log) {
         Map<String, Object> map = new LinkedHashMap<>();
@@ -133,9 +132,103 @@ public final class LogResponseMapper {
     }
 
     private static String redactPlainText(String text) {
-        String scrubbed = JSON_KEY_FALLBACK_PATTERN.matcher(text).replaceAll("$1" + REDACTED + "$2");
-        scrubbed = AUTH_HEADER_LINE_PATTERN.matcher(scrubbed).replaceAll("$1" + REDACTED);
+        String scrubbed = redactMalformedJsonValues(text);
+        scrubbed = redactAuthorizationHeaderLines(scrubbed);
         scrubbed = BEARER_BASIC_TOKEN_PATTERN.matcher(scrubbed).replaceAll("$1" + REDACTED);
         return scrubbed;
+    }
+
+    private static String redactMalformedJsonValues(String text) {
+        Matcher matcher = JSON_SENSITIVE_KEY_PREFIX.matcher(text);
+        if (!matcher.find()) {
+            return text;
+        }
+        StringBuilder sb = new StringBuilder(text.length());
+        int copiedTo = 0;
+        do {
+            int valueStart = matcher.end();
+            int closingQuote = findClosingQuote(text, valueStart);
+            if (closingQuote < 0) {
+                int rawEnd = findLineEnd(text, valueStart);
+                int valueEnd = stripTrailingCarriageReturn(text, valueStart, rawEnd);
+                sb.append(text, copiedTo, valueStart).append(REDACTED);
+                copiedTo = valueEnd;
+                break;
+            }
+            sb.append(text, copiedTo, valueStart).append(REDACTED).append('"');
+            copiedTo = closingQuote + 1;
+        } while (matcher.find(copiedTo));
+        sb.append(text, copiedTo, text.length());
+        return sb.toString();
+    }
+
+    private static int findClosingQuote(String text, int fromIndex) {
+        boolean escaped = false;
+        for (int i = fromIndex; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (escaped) {
+                escaped = false;
+            } else if (ch == '\\') {
+                escaped = true;
+            } else if (ch == '"') {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static String redactAuthorizationHeaderLines(String text) {
+        StringBuilder sb = null;
+        int copiedTo = 0;
+        int lineStart = 0;
+        while (lineStart < text.length()) {
+            int rawLineEnd = findLineEnd(text, lineStart);
+            int lineEnd = stripTrailingCarriageReturn(text, lineStart, rawLineEnd);
+            int valueStart = findAuthorizationValueStart(text, lineStart, lineEnd);
+            if (valueStart >= 0) {
+                if (sb == null) {
+                    sb = new StringBuilder(text.length());
+                }
+                sb.append(text, copiedTo, valueStart).append(REDACTED);
+                copiedTo = lineEnd;
+            }
+            lineStart = rawLineEnd + 1;
+        }
+        if (sb == null) {
+            return text;
+        }
+        sb.append(text, copiedTo, text.length());
+        return sb.toString();
+    }
+
+    private static int findLineEnd(String text, int lineStart) {
+        int lineFeed = text.indexOf('\n', lineStart);
+        return lineFeed < 0 ? text.length() : lineFeed;
+    }
+
+    private static int stripTrailingCarriageReturn(String text, int lineStart, int lineEnd) {
+        return lineEnd > lineStart && text.charAt(lineEnd - 1) == '\r' ? lineEnd - 1 : lineEnd;
+    }
+
+    private static int findAuthorizationValueStart(String text, int lineStart, int lineEnd) {
+        int keyStart = skipHorizontalWhitespace(text, lineStart, lineEnd);
+        int keyEnd = keyStart + AUTH_HEADER_NAME.length();
+        if (keyEnd >= lineEnd || !text.regionMatches(true, keyStart, AUTH_HEADER_NAME, 0, AUTH_HEADER_NAME.length())) {
+            return -1;
+        }
+        int colonIndex = skipHorizontalWhitespace(text, keyEnd, lineEnd);
+        if (colonIndex >= lineEnd || text.charAt(colonIndex) != ':') {
+            return -1;
+        }
+        int valueStart = skipHorizontalWhitespace(text, colonIndex + 1, lineEnd);
+        return valueStart < lineEnd ? valueStart : -1;
+    }
+
+    private static int skipHorizontalWhitespace(String text, int start, int end) {
+        int idx = start;
+        while (idx < end && (text.charAt(idx) == ' ' || text.charAt(idx) == '\t')) {
+            idx++;
+        }
+        return idx;
     }
 }
