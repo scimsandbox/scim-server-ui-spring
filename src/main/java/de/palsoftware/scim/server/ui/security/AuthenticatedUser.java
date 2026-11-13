@@ -5,6 +5,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 
 import java.util.Locale;
+import java.util.Map;
 
 public final class AuthenticatedUser {
 
@@ -21,7 +22,7 @@ public final class AuthenticatedUser {
             if (resolved != null) {
                 return resolved;
             }
-            throw new IllegalStateException("Authenticated principal is missing an email address");
+            throw new IllegalStateException("Authenticated principal is missing a verified email address");
         }
         String fallback = authentication.getName();
         if (fallback == null || fallback.isBlank()) {
@@ -49,15 +50,31 @@ public final class AuthenticatedUser {
         return false;
     }
 
-    public static String resolveEmail(OidcUser oidcUser) {
+    public static boolean isEmailVerified(OidcUser oidcUser) {
         if (oidcUser == null) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(oidcUser.getEmailVerified())) {
+            return true;
+        }
+        Map<String, Object> claims = oidcUser.getClaims();
+        if (claims != null) {
+            Object rawVerified = claims.get("email_verified");
+            if (rawVerified instanceof Boolean verified) {
+                return verified;
+            }
+            if (rawVerified instanceof String verifiedStr) {
+                return "true".equalsIgnoreCase(verifiedStr.trim());
+            }
+        }
+        return false;
+    }
+
+    public static String resolveEmail(OidcUser oidcUser) {
+        if (!isEmailVerified(oidcUser)) {
             return null;
         }
-        return normalizeEmail(firstNonBlank(
-                oidcUser.getEmail(),
-                oidcUser.getClaimAsString("upn"),
-                oidcUser.getClaimAsString("unique_name"),
-                oidcUser.getPreferredUsername()));
+        return normalizeEmail(oidcUser.getEmail());
     }
 
     public static String normalizeEmail(String value) {
@@ -69,14 +86,5 @@ public final class AuthenticatedUser {
             return null;
         }
         return normalized;
-    }
-
-    private static String firstNonBlank(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-        return null;
     }
 }

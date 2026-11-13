@@ -17,6 +17,8 @@ public interface ScimUserRepository extends JpaRepository<ScimUser, UUID>, JpaSp
 
     Optional<ScimUser> findByIdAndWorkspaceId(UUID id, UUID workspaceId);
 
+    boolean existsByIdAndWorkspaceId(UUID id, UUID workspaceId);
+
     Optional<ScimUser> findByUserNameIgnoreCaseAndWorkspaceId(String userName, UUID workspaceId);
 
     boolean existsByUserNameIgnoreCaseAndWorkspaceId(String userName, UUID workspaceId);

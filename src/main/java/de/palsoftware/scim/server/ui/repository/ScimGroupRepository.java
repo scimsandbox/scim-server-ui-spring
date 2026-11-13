@@ -17,6 +17,8 @@ public interface ScimGroupRepository extends JpaRepository<ScimGroup, UUID>, Jpa
 
     Optional<ScimGroup> findByIdAndWorkspaceId(UUID id, UUID workspaceId);
 
+    boolean existsByIdAndWorkspaceId(UUID id, UUID workspaceId);
+
     Optional<ScimGroup> findByDisplayNameAndWorkspaceId(String displayName, UUID workspaceId);
 
     boolean existsByDisplayNameAndWorkspaceId(String displayName, UUID workspaceId);

@@ -10,7 +10,7 @@
     <title>SCIM Server Manager</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/favicon.svg}" href="/favicon.svg">
     <link rel="stylesheet" th:href="@{/fonts/fonts.css}" href="/fonts/fonts.css">
-    <link rel="stylesheet" href="/css/workspace.css">
+    <link rel="stylesheet" th:href="@{/css/workspace.css}" href="/css/workspace.css">
 
     <style>
         .auto-style-1 { margin:0 }
@@ -54,7 +54,7 @@
     <p class="breadcrumb auto-style-3" id="wsOwner" ></p>
     <div class="workspace-meta-row">
         <p class="breadcrumb workspace-meta-text" id="wsSize"></p>
-        <button class="btn btn-info btn-sm" type="button" onclick="showStatsModal()">Stats</button>
+        <button class="btn btn-info btn-sm" type="button" data-action="show-stats-modal">Stats</button>
     </div>
     <p class="breadcrumb auto-style-3" id="wsCreated" ></p>
     <p class="breadcrumb auto-style-4" id="wsUpdated" ></p>
@@ -72,10 +72,10 @@
         <div class="endpoint-box" style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem 1rem;">
             <span id="scimBaseUrl" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.85rem; color: #f8fafc; flex: 1;">—</span>
             <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                <button class="btn btn-secondary btn-sm" type="button" onclick="copyText(document.getElementById('scimBaseUrl').textContent)" data-tooltip="Copy SCIM Base URL" aria-label="Copy SCIM Base URL" style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border-radius: 6px;">
+                <button class="btn btn-secondary btn-sm" type="button" data-action="copy-base-url" data-tooltip="Copy SCIM Base URL" aria-label="Copy SCIM Base URL" style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border-radius: 6px;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                 </button>
-                <button class="btn btn-primary btn-sm" type="button" onclick="launchValidator('playground')" data-tooltip="Open in SCIM Playground" aria-label="Open in SCIM Playground" style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border-radius: 6px;">
+                <button class="btn btn-primary btn-sm" type="button" data-action="launch-validator" data-target="playground" data-tooltip="Open in SCIM Playground" aria-label="Open in SCIM Playground" style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border-radius: 6px;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
                 </button>
             </div>
@@ -96,12 +96,12 @@
         <div class="card-header">
             <div class="title-group">
                 <h2>Access Tokens</h2>
-                <button class="card-toggle" onclick="toggleCard('tokensCard', this)">Expand</button>
+                <button class="card-toggle" type="button" data-action="toggle-card" data-card-id="tokensCard">Expand</button>
             </div>
             <div class="auto-style-7">
-                <button class="btn btn-sm auto-style-8" onclick="refreshTokens()">Refresh</button>
-                <button class="btn btn-danger btn-sm" onclick="clearTokens()">Clear All</button>
-                <button class="btn btn-primary" onclick="showCreateTokenModal()">+ New Token</button>
+                <button class="btn btn-sm auto-style-8" type="button" data-action="refresh-tokens">Refresh</button>
+                <button class="btn btn-danger btn-sm" type="button" data-action="clear-tokens">Clear All</button>
+                <button class="btn btn-primary" type="button" data-action="show-create-token-modal">+ New Token</button>
             </div>
         </div>
         <div class="card-body" id="tokensCard">
@@ -123,10 +123,10 @@
             <p class="generate-note">Relations generate group memberships between existing users and groups. Generate Sample Data runs users, groups, and relations with the same count.</p>
         </div>
         <div class="generate-actions" id="generateActions">
-            <button class="btn btn-primary" type="button" onclick="generateSampleData('users')">Generate Users</button>
-            <button class="btn btn-primary" type="button" onclick="generateSampleData('groups')">Generate Groups</button>
-            <button class="btn btn-info" type="button" onclick="generateSampleData('relations')">Generate Relations</button>
-            <button class="btn btn-secondary" type="button" onclick="generateSampleData('all')">Generate Sample Data</button>
+            <button class="btn btn-primary" type="button" data-action="generate-sample-data" data-kind="users">Generate Users</button>
+            <button class="btn btn-primary" type="button" data-action="generate-sample-data" data-kind="groups">Generate Groups</button>
+            <button class="btn btn-info" type="button" data-action="generate-sample-data" data-kind="relations">Generate Relations</button>
+            <button class="btn btn-secondary" type="button" data-action="generate-sample-data" data-kind="all">Generate Sample Data</button>
         </div>
     </div>
 
@@ -135,11 +135,11 @@
         <div class="card-header">
             <div class="title-group">
                 <h2>Request Logs</h2>
-                <button class="card-toggle" onclick="toggleCard('logsCard', this)">Expand</button>
+                <button class="card-toggle" type="button" data-action="toggle-card" data-card-id="logsCard">Expand</button>
             </div>
             <div  class="auto-style-7" >
-                <button class="btn btn-sm auto-style-8"  onclick="refreshLogs()">Refresh</button>
-                <button class="btn btn-danger btn-sm" onclick="clearLogs()">Clear Logs</button>
+                <button class="btn btn-sm auto-style-8" type="button" data-action="refresh-logs">Refresh</button>
+                <button class="btn btn-danger btn-sm" type="button" data-action="clear-logs">Clear Logs</button>
             </div>
         </div>
         <div class="card-body" id="logsCard">
@@ -159,17 +159,17 @@
         <div class="card-header">
             <div class="title-group">
                 <h2>Users</h2>
-                <button class="card-toggle" onclick="toggleCard('usersCard', this)">Expand</button>
+                <button class="card-toggle" type="button" data-action="toggle-card" data-card-id="usersCard">Expand</button>
             </div>
             <div  class="auto-style-7" >
-                <button class="btn btn-sm auto-style-8"  onclick="refreshUsers()">Refresh</button>
-                <button class="btn btn-danger btn-sm" onclick="clearUsers()">Clear All</button>
-                <button class="btn btn-primary" onclick="showUserModal()">+ New User</button>
+                <button class="btn btn-sm auto-style-8" type="button" data-action="refresh-users">Refresh</button>
+                <button class="btn btn-danger btn-sm" type="button" data-action="clear-users">Clear All</button>
+                <button class="btn btn-primary" type="button" data-action="show-user-modal">+ New User</button>
             </div>
         </div>
         <div class="card-body" id="usersCard">
             <div class="list-controls">
-                <input class="search" type="text" id="userSearch" aria-label="Search users" placeholder="Search users (user name)" oninput="onUserSearch()">
+                <input class="search" type="text" id="userSearch" aria-label="Search users" placeholder="Search users (user name)">
                 <span class="section-title auto-style-9" >20 per page</span>
             </div>
             <ul class="entity-list scrollable-list" id="userList">
@@ -184,17 +184,17 @@
         <div class="card-header">
             <div class="title-group">
                 <h2>Groups</h2>
-                <button class="card-toggle" onclick="toggleCard('groupsCard', this)">Expand</button>
+                <button class="card-toggle" type="button" data-action="toggle-card" data-card-id="groupsCard">Expand</button>
             </div>
             <div  class="auto-style-7" >
-                <button class="btn btn-sm auto-style-8"  onclick="refreshGroups()">Refresh</button>
-                <button class="btn btn-danger btn-sm" onclick="clearGroups()">Clear All</button>
-                <button class="btn btn-primary" onclick="showGroupModal()">+ New Group</button>
+                <button class="btn btn-sm auto-style-8" type="button" data-action="refresh-groups">Refresh</button>
+                <button class="btn btn-danger btn-sm" type="button" data-action="clear-groups">Clear All</button>
+                <button class="btn btn-primary" type="button" data-action="show-group-modal">+ New Group</button>
             </div>
         </div>
         <div class="card-body" id="groupsCard">
             <div class="list-controls">
-                <input class="search" type="text" id="groupSearch" aria-label="Search groups" placeholder="Search groups (display name, external ID)" oninput="onGroupSearch()">
+                <input class="search" type="text" id="groupSearch" aria-label="Search groups" placeholder="Search groups (display name, external ID)">
                 <span class="section-title auto-style-9" >20 per page</span>
             </div>
             <ul class="entity-list scrollable-list" id="groupList">
@@ -233,7 +233,7 @@
         <p class="stats-note" id="wsStatsAttributeBreakdown">Emails - · Phones - · Addresses - · Entitlements - · Roles - · IMs - · Photos - · X509 -</p>
         <p class="stats-note">Estimated disk usage apportions each PostgreSQL relation's on-disk size to this workspace by its share of rows in that relation. It includes table, index, and TOAST storage, but row width differences, dead tuples, and free space are distributed proportionally.</p>
         <div class="modal-actions">
-            <button class="btn btn-info" type="button" onclick="hideStatsModal()">Close</button>
+            <button class="btn btn-info" type="button" data-action="hide-stats-modal">Close</button>
         </div>
     </div>
 </div>
@@ -254,8 +254,8 @@
             </div>
         </div>
         <div class="modal-actions">
-            <button class="btn auto-style-8"  onclick="hideCreateTokenModal()">Close</button>
-            <button class="btn btn-primary" id="createTokenBtn" onclick="createToken()">Create</button>
+            <button class="btn auto-style-8" type="button" data-action="hide-create-token-modal">Close</button>
+            <button class="btn btn-primary" id="createTokenBtn" type="button" data-action="create-token">Create</button>
         </div>
     </div>
 </div>
@@ -324,7 +324,7 @@
         <div class="multi-valued-field">
             <div class="multi-valued-header">
                 <label for="userEmails">Emails</label>
-                <button type="button" class="btn btn-sm auto-style-8"  onclick="addMultiValuedItem('userEmails')">+ Add</button>
+                <button type="button" class="btn btn-sm auto-style-8" data-action="add-multi-valued-item" data-field-id="userEmails">+ Add</button>
             </div>
             <div class="multi-valued-builder" id="userEmailsBuilder"></div>
             <textarea id="userEmails" rows="2"  class="auto-style-10"  placeholder='[{"value":"jane@example.com","type":"work","primary":true}]'></textarea>
@@ -333,7 +333,7 @@
         <div class="multi-valued-field">
             <div class="multi-valued-header">
                 <label for="userPhoneNumbers">Phone Numbers</label>
-                <button type="button" class="btn btn-sm auto-style-8"  onclick="addMultiValuedItem('userPhoneNumbers')">+ Add</button>
+                <button type="button" class="btn btn-sm auto-style-8" data-action="add-multi-valued-item" data-field-id="userPhoneNumbers">+ Add</button>
             </div>
             <div class="multi-valued-builder" id="userPhoneNumbersBuilder"></div>
             <textarea id="userPhoneNumbers" rows="2"  class="auto-style-10"  placeholder='[{"value":"+1-555-0100","type":"work"}]'></textarea>
@@ -342,7 +342,7 @@
         <div class="multi-valued-field">
             <div class="multi-valued-header">
                 <label for="userAddresses">Addresses</label>
-                <button type="button" class="btn btn-sm auto-style-8"  onclick="addMultiValuedItem('userAddresses')">+ Add</button>
+                <button type="button" class="btn btn-sm auto-style-8" data-action="add-multi-valued-item" data-field-id="userAddresses">+ Add</button>
             </div>
             <div class="multi-valued-builder" id="userAddressesBuilder"></div>
             <textarea id="userAddresses" rows="2"  class="auto-style-10"  placeholder='[{"formatted":"1 Main St","locality":"NYC","country":"US","type":"work"}]'></textarea>
@@ -351,7 +351,7 @@
         <div class="multi-valued-field">
             <div class="multi-valued-header">
                 <label for="userEntitlements">Entitlements</label>
-                <button type="button" class="btn btn-sm auto-style-8"  onclick="addMultiValuedItem('userEntitlements')">+ Add</button>
+                <button type="button" class="btn btn-sm auto-style-8" data-action="add-multi-valued-item" data-field-id="userEntitlements">+ Add</button>
             </div>
             <div class="multi-valued-builder" id="userEntitlementsBuilder"></div>
             <textarea id="userEntitlements" rows="2"  class="auto-style-10"  placeholder='[{"value":"admin","type":"role"}]'></textarea>
@@ -360,7 +360,7 @@
         <div class="multi-valued-field">
             <div class="multi-valued-header">
                 <label for="userRoles">Roles</label>
-                <button type="button" class="btn btn-sm auto-style-8"  onclick="addMultiValuedItem('userRoles')">+ Add</button>
+                <button type="button" class="btn btn-sm auto-style-8" data-action="add-multi-valued-item" data-field-id="userRoles">+ Add</button>
             </div>
             <div class="multi-valued-builder" id="userRolesBuilder"></div>
             <textarea id="userRoles" rows="2"  class="auto-style-10"  placeholder='[{"value":"editor","type":"app"}]'></textarea>
@@ -369,7 +369,7 @@
         <div class="multi-valued-field">
             <div class="multi-valued-header">
                 <label for="userIms">IMs</label>
-                <button type="button" class="btn btn-sm auto-style-8"  onclick="addMultiValuedItem('userIms')">+ Add</button>
+                <button type="button" class="btn btn-sm auto-style-8" data-action="add-multi-valued-item" data-field-id="userIms">+ Add</button>
             </div>
             <div class="multi-valued-builder" id="userImsBuilder"></div>
             <textarea id="userIms" rows="2"  class="auto-style-10"  placeholder='[{"value":"jane_doe","type":"slack"}]'></textarea>
@@ -378,7 +378,7 @@
         <div class="multi-valued-field">
             <div class="multi-valued-header">
                 <label for="userPhotos">Photos</label>
-                <button type="button" class="btn btn-sm auto-style-8"  onclick="addMultiValuedItem('userPhotos')">+ Add</button>
+                <button type="button" class="btn btn-sm auto-style-8" data-action="add-multi-valued-item" data-field-id="userPhotos">+ Add</button>
             </div>
             <div class="multi-valued-builder" id="userPhotosBuilder"></div>
             <textarea id="userPhotos" rows="2"  class="auto-style-10"  placeholder='[{"value":"https://example.com/photo.jpg","type":"photo"}]'></textarea>
@@ -387,7 +387,7 @@
         <div class="multi-valued-field">
             <div class="multi-valued-header">
                 <label for="userX509">X509 Certificates</label>
-                <button type="button" class="btn btn-sm auto-style-8"  onclick="addMultiValuedItem('userX509')">+ Add</button>
+                <button type="button" class="btn btn-sm auto-style-8" data-action="add-multi-valued-item" data-field-id="userX509">+ Add</button>
             </div>
             <div class="multi-valued-builder" id="userX509Builder"></div>
             <textarea id="userX509" rows="2"  class="auto-style-10"  placeholder='[{"value":"-----BEGIN CERTIFICATE-----...","type":"work"}]'></textarea>
@@ -396,8 +396,8 @@
             <input type="checkbox" id="userActive" checked  class="auto-style-14" > Active
         </label>
         <div class="modal-actions">
-            <button class="btn auto-style-8"  onclick="hideUserModal()">Cancel</button>
-            <button class="btn btn-primary" onclick="saveUser()" id="userSaveBtn">Save</button>
+            <button class="btn auto-style-8" type="button" data-action="hide-user-modal">Cancel</button>
+            <button class="btn btn-primary" type="button" data-action="save-user" id="userSaveBtn">Save</button>
         </div>
     </div>
 </div>
@@ -416,29 +416,29 @@
         <p class="section-title">Users</p>
         <div  class="auto-style-15" >
             <input type="text" id="groupUserSearch" aria-label="Search users to add as members" placeholder="Search all users..."  class="auto-style-16" >
-            <button class="btn btn-sm auto-style-8"  onclick="searchUsersLookup()">Search</button>
+            <button class="btn btn-sm auto-style-8" type="button" data-action="search-users-lookup">Search</button>
         </div>
         <div class="lookup-row auto-style-17" >
             <select id="groupUserLookup" aria-label="Select a user to add" class="lookup-select auto-style-18" >
                 <option value="">Pick from loaded users...</option>
             </select>
-            <button class="btn btn-sm auto-style-8"  onclick="addSelectedMember('User')">Add User</button>
+            <button class="btn btn-sm auto-style-8" type="button" data-action="add-selected-member" data-member-type="User">Add User</button>
         </div>
         <p class="section-title">Groups</p>
         <div  class="auto-style-15" >
             <input type="text" id="groupGroupSearch" aria-label="Search groups to add as members" placeholder="Search all groups..."  class="auto-style-16" >
-            <button class="btn btn-sm auto-style-8"  onclick="searchGroupsLookup()">Search</button>
+            <button class="btn btn-sm auto-style-8" type="button" data-action="search-groups-lookup">Search</button>
         </div>
         <div class="lookup-row auto-style-17" >
             <select id="groupGroupLookup" aria-label="Select a group to add" class="lookup-select auto-style-18" >
                 <option value="">Pick from loaded groups...</option>
             </select>
-            <button class="btn btn-sm auto-style-8"  onclick="addSelectedMember('Group')">Add Group</button>
+            <button class="btn btn-sm auto-style-8" type="button" data-action="add-selected-member" data-member-type="Group">Add Group</button>
         </div>
         <ul class="entity-list" id="groupMembersList"></ul>
         <div class="modal-actions">
-            <button class="btn auto-style-8"  onclick="hideGroupModal()">Cancel</button>
-            <button class="btn btn-primary" onclick="saveGroup()" id="groupSaveBtn">Save</button>
+            <button class="btn auto-style-8" type="button" data-action="hide-group-modal">Cancel</button>
+            <button class="btn btn-primary" type="button" data-action="save-group" id="groupSaveBtn">Save</button>
         </div>
     </div>
 </div>
@@ -449,7 +449,7 @@
         <h3 id="detailsTitle">Details</h3>
         <pre class="details-pre" id="detailsContent"></pre>
         <div class="modal-actions">
-            <button class="btn auto-style-8"  onclick="hideDetailsModal()">Close</button>
+            <button class="btn auto-style-8" type="button" data-action="hide-details-modal">Close</button>
         </div>
     </div>
 </div>
@@ -463,7 +463,7 @@
         <p class="section-title auto-style-11" >Response</p>
         <pre class="details-pre" id="logResponse"></pre>
         <div class="modal-actions">
-            <button class="btn auto-style-8"  onclick="hideLogModal()">Close</button>
+            <button class="btn auto-style-8" type="button" data-action="hide-log-modal">Close</button>
         </div>
     </div>
 </div>
@@ -480,7 +480,7 @@
 
 <div class="session-banner" id="sessionExpiredBanner" role="alert" aria-hidden="true">
     <span>Your session expired. Copy anything you still need — unsaved changes are lost on sign-in.</span>
-    <button class="btn btn-primary btn-sm" type="button" onclick="signInAgain()">Sign in again</button>
+    <button class="btn btn-primary btn-sm" type="button" data-action="sign-in-again">Sign in again</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -528,8 +528,8 @@
         </span>
     </a>
 </details>
-<script defer src="/js/api-client.js"></script>
-<script defer src="/js/dock-news.js"></script>
-<script defer src="/js/workspace.js"></script>
+<script defer th:src="@{/js/api-client.js}" src="/js/api-client.js"></script>
+<script defer th:src="@{/js/dock-news.js}" src="/js/dock-news.js"></script>
+<script defer th:src="@{/js/workspace.js}" src="/js/workspace.js"></script>
 </body>
 </html>

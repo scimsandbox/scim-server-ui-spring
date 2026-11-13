@@ -110,11 +110,28 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
         mockMvc.perform(get("/favicon.svg")).andExpect(status().isOk());
         mockMvc.perform(get("/fonts/fonts.css")).andExpect(status().isOk());
         mockMvc.perform(get("/css/workspace.css")).andExpect(status().isOk());
-        // workspace.js now depends on this file existing; a packaging slip would break every page's
-        // 401 handling while leaving the rest of the suite green.
+        // workspace.js and index.js depend on these files existing; a packaging slip would break
+        // page behaviour or 401 handling while leaving backend tests green.
         mockMvc.perform(get("/js/api-client.js"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("global.apiFetch")));
+        mockMvc.perform(get("/js/index.js"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("loadWorkspaces")));
+    }
+
+    @Test
+    void actuatorHealthBypassesOidcRedirectWhileOtherActuatorEndpointsAreDeniedOnMainPortWithoutKey() throws Exception {
+        // With management.server.port=9090 in application.yml, MockMvc (main context) does not mount
+        // Actuator handlers, so passing security reaches DispatcherServlet (404) instead of 302/401/403.
+        int healthStatus = mockMvc.perform(get("/actuator/health"))
+                .andReturn()
+                .getResponse()
+                .getStatus();
+        assertThat(healthStatus).isNotIn(302, 401, 403);
+
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isForbidden());
     }
 
     private static void assertNotSaved(ResultActions result, String what) throws Exception {

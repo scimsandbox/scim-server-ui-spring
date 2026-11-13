@@ -10,6 +10,21 @@ function trimTrailingSlashes(value) {
     return s;
 }
 
+function parseHttpUrl(rawUrl) {
+    if (!rawUrl) {
+        return null;
+    }
+    try {
+        const parsed = new URL(String(rawUrl).trim(), globalThis.location.href);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            return parsed;
+        }
+    } catch {
+        // Invalid URL
+    }
+    return null;
+}
+
 const SCIM_API_BASE_URL = trimTrailingSlashes(
     document.querySelector('meta[name="scim_api_base_url"]')?.content || 'http://localhost:8080'
 );
@@ -19,13 +34,7 @@ const VALIDATOR_URL = trimTrailingSlashes(
 // Bearer tokens are handed to the validator over postMessage, so the message must be addressed to
 // the validator's origin - never '*', which would deliver it to whatever page the tab currently
 // shows (an identity provider mid-login, for example).
-const VALIDATOR_ORIGIN = (() => {
-    try {
-        return new URL(VALIDATOR_URL, globalThis.location.href).origin;
-    } catch {
-        return null;
-    }
-})();
+const VALIDATOR_ORIGIN = parseHttpUrl(VALIDATOR_URL)?.origin || null;
 const wsId = globalThis.location.pathname.split('/').pop();
 const state = {
     users: [],
@@ -357,7 +366,7 @@ function renderMultiValuedField(fieldId, showToastOnError = true) {
                 return `
                     <label class="${fullClass}" style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0">
                         <input type="checkbox" style="width:auto;margin:0" ${value ? 'checked' : ''}
-                            onchange="updateMultiValuedItem('${fieldId}', ${index}, '${field.key}', this.checked)">
+                            data-mv-field-id="${esc(fieldId)}" data-mv-index="${index}" data-mv-key="${esc(field.key)}" data-mv-kind="boolean">
                         ${esc(field.label)}
                     </label>
                 `;
@@ -369,7 +378,7 @@ function renderMultiValuedField(fieldId, showToastOnError = true) {
                 return `
                     <div class="${fullClass}">
                         <label style="margin-bottom:0.2rem">${esc(field.label)}</label>
-                        <select onchange="updateMultiValuedItem('${fieldId}', ${index}, '${field.key}', this.value)">
+                        <select data-mv-field-id="${esc(fieldId)}" data-mv-index="${index}" data-mv-key="${esc(field.key)}" data-mv-kind="enum">
                             <option value=""></option>
                             ${options}
                         </select>
@@ -380,7 +389,7 @@ function renderMultiValuedField(fieldId, showToastOnError = true) {
                 <div class="${fullClass}">
                     <label style="margin-bottom:0.2rem">${esc(field.label)}</label>
                     <input type="text" value="${esc(value == null ? '' : String(value))}"
-                        onchange="updateMultiValuedItem('${fieldId}', ${index}, '${field.key}', this.value)">
+                        data-mv-field-id="${esc(fieldId)}" data-mv-index="${index}" data-mv-key="${esc(field.key)}" data-mv-kind="text">
                 </div>
             `;
         }).join('');
@@ -388,7 +397,7 @@ function renderMultiValuedField(fieldId, showToastOnError = true) {
             <div class="multi-valued-item">
                 <div class="multi-valued-item-grid">${fieldsHtml}</div>
                 <div class="multi-valued-item-actions">
-                    <button type="button" class="btn btn-danger btn-sm" onclick="removeMultiValuedItem('${fieldId}', ${index})">Remove</button>
+                    <button type="button" class="btn btn-danger btn-sm" data-action="remove-multi-valued-item" data-field-id="${esc(fieldId)}" data-index="${index}">Remove</button>
                 </div>
             </div>
         `;
@@ -467,10 +476,10 @@ async function loadTokens() {
             <div class="info">
                 <span class="name">${esc(t.name)}</span>
                 <span class="badge ${t.revoked ? 'badge-revoked' : 'badge-active'}">${t.revoked ? 'Revoked' : 'Active'}</span>
-                <div class="meta">${t.description || ''} &middot; Created ${new Date(t.createdAt).toLocaleString()}</div>
+                <div class="meta">${esc(t.description || '')} &middot; Created ${esc(new Date(t.createdAt).toLocaleString())}</div>
             </div>
             <div>
-                ${t.revoked ? '' : `<button class="btn btn-danger btn-sm" onclick="revokeToken('${t.id}','${esc(t.name)}')">Revoke</button>`}
+                ${t.revoked ? '' : `<button type="button" class="btn btn-danger btn-sm" data-action="revoke-token" data-token-id="${esc(t.id)}" data-token-name="${esc(t.name)}">Revoke</button>`}
             </div>
         </li>
     `).join('');
@@ -624,7 +633,17 @@ async function revokeToken(id, name) {
 
 async function launchValidator(target = 'playground') {
     const rawEndpoint = document.getElementById('scimBaseUrl')?.textContent?.trim();
-    const baseUrl = (rawEndpoint && rawEndpoint !== '—') ? rawEndpoint : `${SCIM_API_BASE_URL}/ws/${wsId}/scim/v2`;
+    const candidateBaseUrl = (rawEndpoint && rawEndpoint !== '—') ? rawEndpoint : `${SCIM_API_BASE_URL}/ws/${wsId}/scim/v2`;
+    const parsedBaseUrl = parseHttpUrl(candidateBaseUrl);
+    const targetPath = (target === 'test-suite' || target === 'suite') ? '/' : '/playground';
+    const launchUrl = parseHttpUrl(`${VALIDATOR_URL}${targetPath}`);
+
+    if (!launchUrl || !VALIDATOR_ORIGIN || !parsedBaseUrl) {
+        toast('Validator URL configuration is invalid');
+        return;
+    }
+
+    const safeBaseUrl = trimTrailingSlashes(parsedBaseUrl.href);
 
     await runBlockingAction('Generating test token & launching...', async () => {
         const nowStr = new Date().toLocaleDateString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
@@ -654,11 +673,11 @@ async function launchValidator(target = 'playground') {
             return;
         }
 
-        const targetPath = (target === 'test-suite' || target === 'suite') ? '/' : '/playground';
-        const targetUrl = `${VALIDATOR_URL}${targetPath}#url=${encodeURIComponent(baseUrl)}&token=${encodeURIComponent(rawToken)}`;
+        // Never place bearer tokens in query strings or URL fragments (browser history / server logs).
+        launchUrl.search = '';
+        launchUrl.hash = `url=${encodeURIComponent(safeBaseUrl)}`;
 
-        // Open in new tab
-        const valWin = window.open(targetUrl, '_blank');
+        const valWin = window.open(launchUrl.href, '_blank');
         if (!valWin) {
             // The token was already minted, so surface it rather than reporting a launch that never happened.
             await Promise.all([
@@ -669,33 +688,39 @@ async function launchValidator(target = 'playground') {
             return;
         }
 
-        // PostMessage handshake as memory-to-memory backup
-        if (VALIDATOR_ORIGIN) {
-            let attempts = 0;
-            const onAck = (event) => {
-                if (event.origin === VALIDATOR_ORIGIN && event.data && event.data.type === 'SCIM_VALIDATOR_ACK') {
-                    clearInterval(interval);
-                    window.removeEventListener('message', onAck);
-                }
-            };
-            window.addEventListener('message', onAck);
-
-            const interval = setInterval(() => {
-                attempts++;
-                if (attempts > 20 || valWin.closed) {
-                    clearInterval(interval);
-                    window.removeEventListener('message', onAck);
-                    return;
-                }
-                try {
-                    valWin.postMessage({
-                        type: 'SCIM_VALIDATOR_INIT',
-                        baseUrl: baseUrl,
-                        authToken: rawToken
-                    }, VALIDATOR_ORIGIN);
-                } catch (e) {}
-            }, 250);
+        // Prevent reverse tabnabbing while retaining window handle for origin-scoped postMessage.
+        try {
+            valWin.opener = null;
+        } catch {
+            // Cross-origin opener assignment ignored if already restricted
         }
+
+        let attempts = 0;
+        const onAck = (event) => {
+            if (event.origin === VALIDATOR_ORIGIN && event.data && event.data.type === 'SCIM_VALIDATOR_ACK') {
+                clearInterval(interval);
+                window.removeEventListener('message', onAck);
+            }
+        };
+        window.addEventListener('message', onAck);
+
+        const interval = setInterval(() => {
+            attempts++;
+            if (attempts > 20 || valWin.closed) {
+                clearInterval(interval);
+                window.removeEventListener('message', onAck);
+                return;
+            }
+            try {
+                valWin.postMessage({
+                    type: 'SCIM_VALIDATOR_INIT',
+                    baseUrl: safeBaseUrl,
+                    authToken: rawToken
+                }, VALIDATOR_ORIGIN);
+            } catch {
+                // Target window not ready yet
+            }
+        }, 250);
 
         await Promise.all([
             loadTokens(),
@@ -774,7 +799,17 @@ function toast(msg) {
     setTimeout(() => t.classList.remove('show'), 2500);
 }
 
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function esc(s) {
+    if (s == null) {
+        return '';
+    }
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
 
 async function loadUsers(showToast = false) {
     await loadUsersPage(1, showToast);
@@ -1048,12 +1083,12 @@ function renderLogs() {
     list.innerHTML = state.logs.map(l => `
         <li class="log-item">
             <div>
-                <div class="log-method">${esc(l.method || '')} <span class="log-status">${l.status || ''}</span></div>
+                <div class="log-method">${esc(l.method || '')} <span class="log-status">${esc(l.status ?? '')}</span></div>
                 <div class="log-path">${esc(l.path || '')}</div>
-                <div class="meta">${l.createdAt ? new Date(l.createdAt).toLocaleString() : ''}</div>
+                <div class="meta">${l.createdAt ? esc(new Date(l.createdAt).toLocaleString()) : ''}</div>
             </div>
             <div>
-                <button class="btn btn-sm" style="background:var(--surface2)" onclick="showLogModal('${l.id}')">View</button>
+                <button type="button" class="btn btn-sm" style="background:var(--surface2)" data-action="show-log-modal" data-log-id="${esc(l.id)}">View</button>
             </div>
         </li>
     `).join('');
@@ -1078,9 +1113,9 @@ function renderUsers() {
             </div>
             <div class="entity-actions">
                 <span class="badge ${u.active ? 'badge-active' : 'badge-inactive'}">${u.active ? 'Active' : 'Inactive'}</span>
-                <button class="btn btn-sm" style="background:var(--surface2)" onclick="showDetails('user','${u.id}')">Details</button>
-                <button class="btn btn-sm" style="background:var(--surface2)" onclick="showUserModal('${u.id}')">Edit</button>
-                <button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}')">Delete</button>
+                <button type="button" class="btn btn-sm" style="background:var(--surface2)" data-action="show-details" data-kind="user" data-entity-id="${esc(u.id)}">Details</button>
+                <button type="button" class="btn btn-sm" style="background:var(--surface2)" data-action="show-user-modal" data-user-id="${esc(u.id)}">Edit</button>
+                <button type="button" class="btn btn-danger btn-sm" data-action="delete-user" data-user-id="${esc(u.id)}">Delete</button>
             </div>
         </li>
     `).join('');
@@ -1105,9 +1140,9 @@ function renderGroups() {
                 <div class="meta">${g.externalId ? esc(g.externalId) : ''}</div>
             </div>
             <div class="entity-actions">
-                <button class="btn btn-sm" style="background:var(--surface2)" onclick="showDetails('group','${g.id}')">Details</button>
-                <button class="btn btn-sm" style="background:var(--surface2)" onclick="showGroupModal('${g.id}')">Edit</button>
-                <button class="btn btn-danger btn-sm" onclick="deleteGroup('${g.id}')">Delete</button>
+                <button type="button" class="btn btn-sm" style="background:var(--surface2)" data-action="show-details" data-kind="group" data-entity-id="${esc(g.id)}">Details</button>
+                <button type="button" class="btn btn-sm" style="background:var(--surface2)" data-action="show-group-modal" data-group-id="${esc(g.id)}">Edit</button>
+                <button type="button" class="btn btn-danger btn-sm" data-action="delete-group" data-group-id="${esc(g.id)}">Delete</button>
             </div>
         </li>
     `).join('');
@@ -1119,9 +1154,9 @@ function buildPagination(kind, page, totalPages) {
     const prevDisabled = page <= 1 ? 'disabled' : '';
     const nextDisabled = page >= totalPages ? 'disabled' : '';
     return `
-        <button class="btn btn-sm" style="background:var(--surface2)" onclick="changePage('${kind}', -1)" ${prevDisabled}>Prev</button>
-        <span class="page-info">Page ${page} of ${totalPages}</span>
-        <button class="btn btn-sm" style="background:var(--surface2)" onclick="changePage('${kind}', 1)" ${nextDisabled}>Next</button>
+        <button type="button" class="btn btn-sm" style="background:var(--surface2)" data-action="change-page" data-kind="${esc(kind)}" data-delta="-1" ${prevDisabled}>Prev</button>
+        <span class="page-info">Page ${esc(page)} of ${esc(totalPages)}</span>
+        <button type="button" class="btn btn-sm" style="background:var(--surface2)" data-action="change-page" data-kind="${esc(kind)}" data-delta="1" ${nextDisabled}>Next</button>
     `;
 }
 
@@ -1253,7 +1288,7 @@ function renderGroupMembers() {
                 <div class="meta">${esc(m.type || '')}</div>
             </div>
             <div class="entity-actions">
-                <button class="btn btn-danger btn-sm" onclick="removeGroupMember(${idx})">Remove</button>
+                <button type="button" class="btn btn-danger btn-sm" data-action="remove-group-member" data-index="${idx}">Remove</button>
             </div>
         </li>
     `).join('');
@@ -1450,6 +1485,10 @@ function closeActiveModals() {
     if (!holdsUnrecoverableContent && groupModal.classList.contains('active')) {
         hideGroupModal();
     }
+    const statsModal = document.getElementById('statsModal');
+    if (statsModal?.classList.contains('active')) {
+        hideStatsModal();
+    }
     if (detailsModal.classList.contains('active')) {
         hideDetailsModal();
     }
@@ -1457,6 +1496,154 @@ function closeActiveModals() {
         hideLogModal();
     }
 }
+
+document.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) {
+        return;
+    }
+    const actionEl = target.closest('[data-action]');
+    if (!actionEl) {
+        return;
+    }
+
+    switch (actionEl.dataset.action) {
+        case 'show-stats-modal':
+            showStatsModal();
+            break;
+        case 'hide-stats-modal':
+            hideStatsModal();
+            break;
+        case 'copy-base-url':
+            copyText(document.getElementById('scimBaseUrl')?.textContent || '');
+            break;
+        case 'launch-validator':
+            launchValidator(actionEl.dataset.target || 'playground');
+            break;
+        case 'toggle-card':
+            toggleCard(actionEl.dataset.cardId || '', actionEl);
+            break;
+        case 'refresh-tokens':
+            refreshTokens();
+            break;
+        case 'clear-tokens':
+            clearTokens();
+            break;
+        case 'show-create-token-modal':
+            showCreateTokenModal();
+            break;
+        case 'hide-create-token-modal':
+            hideCreateTokenModal();
+            break;
+        case 'create-token':
+            createToken();
+            break;
+        case 'revoke-token':
+            revokeToken(actionEl.dataset.tokenId || '', actionEl.dataset.tokenName || '');
+            break;
+        case 'generate-sample-data':
+            generateSampleData(actionEl.dataset.kind || 'all');
+            break;
+        case 'refresh-logs':
+            refreshLogs();
+            break;
+        case 'clear-logs':
+            clearLogs();
+            break;
+        case 'show-log-modal':
+            showLogModal(actionEl.dataset.logId || '');
+            break;
+        case 'hide-log-modal':
+            hideLogModal();
+            break;
+        case 'refresh-users':
+            refreshUsers();
+            break;
+        case 'clear-users':
+            clearUsers();
+            break;
+        case 'show-user-modal':
+            showUserModal(actionEl.dataset.userId || undefined);
+            break;
+        case 'hide-user-modal':
+            hideUserModal();
+            break;
+        case 'save-user':
+            saveUser();
+            break;
+        case 'delete-user':
+            deleteUser(actionEl.dataset.userId || '');
+            break;
+        case 'add-multi-valued-item':
+            addMultiValuedItem(actionEl.dataset.fieldId || '');
+            break;
+        case 'remove-multi-valued-item':
+            removeMultiValuedItem(
+                actionEl.dataset.fieldId || '',
+                Number.parseInt(actionEl.dataset.index || '0', 10)
+            );
+            break;
+        case 'refresh-groups':
+            refreshGroups();
+            break;
+        case 'clear-groups':
+            clearGroups();
+            break;
+        case 'show-group-modal':
+            showGroupModal(actionEl.dataset.groupId || undefined);
+            break;
+        case 'hide-group-modal':
+            hideGroupModal();
+            break;
+        case 'save-group':
+            saveGroup();
+            break;
+        case 'delete-group':
+            deleteGroup(actionEl.dataset.groupId || '');
+            break;
+        case 'search-users-lookup':
+            searchUsersLookup();
+            break;
+        case 'search-groups-lookup':
+            searchGroupsLookup();
+            break;
+        case 'add-selected-member':
+            addSelectedMember(actionEl.dataset.memberType || 'User');
+            break;
+        case 'remove-group-member':
+            removeGroupMember(Number.parseInt(actionEl.dataset.index || '0', 10));
+            break;
+        case 'show-details':
+            showDetails(actionEl.dataset.kind || 'user', actionEl.dataset.entityId || '');
+            break;
+        case 'hide-details-modal':
+            hideDetailsModal();
+            break;
+        case 'change-page':
+            changePage(
+                actionEl.dataset.kind || '',
+                Number.parseInt(actionEl.dataset.delta || '0', 10)
+            );
+            break;
+        default:
+            break;
+    }
+});
+
+document.addEventListener('change', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target || !target.dataset.mvFieldId) {
+        return;
+    }
+    const fieldId = target.dataset.mvFieldId;
+    const index = Number.parseInt(target.dataset.mvIndex || '0', 10);
+    const key = target.dataset.mvKey || '';
+    const value = target.dataset.mvKind === 'boolean' ? target.checked : target.value;
+    updateMultiValuedItem(fieldId, index, key, value);
+});
+
+document.getElementById('userSearch')?.addEventListener('input', onUserSearch);
+document.getElementById('groupSearch')?.addEventListener('input', onGroupSearch);
 
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {

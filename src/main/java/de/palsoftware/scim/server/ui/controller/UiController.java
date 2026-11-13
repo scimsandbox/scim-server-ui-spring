@@ -29,17 +29,20 @@ public class UiController {
             @Value("${app.website.url}") String websiteUrl) {
         this.mgmtUserService = mgmtUserService;
         this.scimApiBaseUrl = scimApiBaseUrl;
-        this.validatorUrl = validatorUrl;
-        this.websiteUrl = normalizeWebsiteUrl(websiteUrl);
+        this.validatorUrl = normalizeHttpUrl(
+                validatorUrl,
+                "app.validator.url (APP_VALIDATOR_URL) must be an absolute http(s) URL, e.g. https://validator.scimsandbox.net");
+        this.websiteUrl = normalizeHttpUrl(
+                websiteUrl,
+                "app.website.url (APP_WEBSITE_URL) must be an absolute http(s) URL, e.g. https://scimsandbox.net");
     }
 
     /**
-     * The website URL is required configuration. It is concatenated with fixed paths in the templates
-     * and used as a link target, so it must be an absolute http(s) URL with a host, and trailing
-     * slashes are stripped to avoid {@code //news/index.json}.
+     * External URLs rendered into templates are validated as absolute http(s) URLs with a host,
+     * and trailing slashes are stripped to avoid doubled slashes when appending fixed paths.
      */
-    private static String normalizeWebsiteUrl(String websiteUrl) {
-        String normalized = websiteUrl == null ? "" : websiteUrl.trim();
+    private static String normalizeHttpUrl(String rawUrl, String errorMessage) {
+        String normalized = rawUrl == null ? "" : rawUrl.trim();
         int end = normalized.length();
         while (end > 0 && normalized.charAt(end - 1) == '/') {
             end--;
@@ -55,8 +58,7 @@ public class UiController {
         } catch (URISyntaxException ex) {
             // fall through to the descriptive error below
         }
-        throw new IllegalStateException(
-                "app.website.url (APP_WEBSITE_URL) must be an absolute http(s) URL, e.g. https://scimsandbox.net");
+        throw new IllegalStateException(errorMessage);
     }
 
     @GetMapping("/")
