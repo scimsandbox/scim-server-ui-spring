@@ -6,7 +6,7 @@
  *   - a per-origin localStorage mark written when the dock button is clicked. The cookie is not
  *     readable from deployments outside .scimsandbox.net (previews, self-hosted), where the
  *     indicator would otherwise stay on forever.
- * Keep this file identical in scim-server-ui-spring and scim-validator-ui-spring.
+ * Relies on sanitizeHttpUrl() from /js/api-client.js (loaded before this script on every page).
  */
 (function () {
     const NEWS_STORAGE_KEY = 'scim_news_seen';
@@ -56,8 +56,13 @@
         const btn = document.querySelector('.floating-side-btn-news');
         if (!btn) return;
 
+        const rawHref = btn.getAttribute('href');
+        if (rawHref && !sanitizeHttpUrl(rawHref)) {
+            btn.removeAttribute('href');
+        }
+
         const dot = btn.querySelector('.news-unread-dot');
-        const feedUrl = btn.getAttribute('data-news-feed-url');
+        const feedUrl = sanitizeHttpUrl(btn.getAttribute('data-news-feed-url'));
         if (!feedUrl) return;
         let cachedItems = [];
 

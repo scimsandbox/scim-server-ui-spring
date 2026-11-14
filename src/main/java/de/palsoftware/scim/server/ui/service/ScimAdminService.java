@@ -21,13 +21,22 @@ import de.palsoftware.scim.server.ui.repository.WorkspaceRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.hibernate.Hibernate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -35,10 +44,15 @@ import java.util.function.Consumer;
 @Transactional(readOnly = true)
 public class ScimAdminService {
 
+    private static final int MAX_BCRYPT_PASSWORD_BYTES = 72;
+    private static final String MEMBER_TYPE_USER = "User";
+    private static final String MEMBER_TYPE_GROUP = "Group";
+
     private final WorkspaceRepository workspaceRepository;
     private final ScimUserRepository userRepository;
     private final ScimGroupRepository groupRepository;
     private final ScimGroupMembershipRepository membershipRepository;
+    private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     public ScimAdminService(WorkspaceRepository workspaceRepository,
                              ScimUserRepository userRepository,
@@ -70,13 +84,12 @@ public class ScimAdminService {
 
     @Transactional
     public ScimUser createUser(UUID workspaceId, UserUpsertRequest request, String actorUsername, boolean admin) {
+        Workspace ws = ensureWorkspaceAccess(workspaceId, actorUsername, admin);
         String userName = normalizeRequired("userName", request.userName());
         if (userRepository.existsByUserNameIgnoreCaseAndWorkspaceId(userName, workspaceId)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "User with userName '" + userName + "' already exists");
         }
-
-        Workspace ws = ensureWorkspaceAccess(workspaceId, actorUsername, admin);
 
         ScimUser user = new ScimUser();
         user.setWorkspace(ws);
@@ -108,7 +121,7 @@ public class ScimAdminService {
     @Transactional
     public void deleteUser(UUID workspaceId, UUID userId, String actorUsername, boolean admin) {
         ScimUser user = getUser(workspaceId, userId, actorUsername, admin);
-        membershipRepository.deleteByMemberValue(userId);
+        membershipRepository.deleteByWorkspaceIdAndMemberValue(workspaceId, userId);
         userRepository.delete(user);
     }
 
@@ -117,7 +130,7 @@ public class ScimAdminService {
         ensureWorkspaceAccess(workspaceId, actorUsername, admin);
         List<UUID> userIds = userRepository.findIdsByWorkspaceId(workspaceId);
         if (!userIds.isEmpty()) {
-            membershipRepository.deleteByMemberValueIn(userIds);
+            membershipRepository.deleteByWorkspaceIdAndMemberValueIn(workspaceId, userIds);
             userRepository.deleteAllByWorkspaceId(workspaceId);
         }
     }
@@ -146,13 +159,12 @@ public class ScimAdminService {
 
     @Transactional
     public ScimGroup createGroup(UUID workspaceId, GroupUpsertRequest request, String actorUsername, boolean admin) {
+        Workspace ws = ensureWorkspaceAccess(workspaceId, actorUsername, admin);
         String displayName = normalizeRequired("displayName", request.displayName());
         if (groupRepository.existsByDisplayNameAndWorkspaceId(displayName, workspaceId)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Group with displayName '" + displayName + "' already exists");
         }
-
-        Workspace ws = ensureWorkspaceAccess(workspaceId, actorUsername, admin);
 
         ScimGroup group = new ScimGroup();
         group.setWorkspace(ws);
@@ -188,8 +200,8 @@ public class ScimAdminService {
     @Transactional
     public void deleteGroup(UUID workspaceId, UUID groupId, String actorUsername, boolean admin) {
         ScimGroup group = getGroup(workspaceId, groupId, actorUsername, admin);
-        membershipRepository.deleteByMemberValue(groupId);
-        membershipRepository.deleteByGroupId(groupId);
+        membershipRepository.deleteByWorkspaceIdAndMemberValue(workspaceId, groupId);
+        membershipRepository.deleteByWorkspaceIdAndGroupId(workspaceId, groupId);
         groupRepository.delete(group);
     }
 
@@ -198,8 +210,8 @@ public class ScimAdminService {
         ensureWorkspaceAccess(workspaceId, actorUsername, admin);
         List<UUID> groupIds = groupRepository.findIdsByWorkspaceId(workspaceId);
         if (!groupIds.isEmpty()) {
-            membershipRepository.deleteByMemberValueIn(groupIds);
-            membershipRepository.deleteByGroupIdIn(groupIds);
+            membershipRepository.deleteByWorkspaceIdAndMemberValueIn(workspaceId, groupIds);
+            membershipRepository.deleteByWorkspaceIdAndGroupIdIn(workspaceId, groupIds);
             groupRepository.deleteAllByWorkspaceId(workspaceId);
         }
     }
@@ -264,7 +276,7 @@ public class ScimAdminService {
         applyIfChanged(isCreate, request.preferredLanguage(), user::setPreferredLanguage);
         applyIfChanged(isCreate, request.locale(), user::setLocale);
         applyIfChanged(isCreate, request.timezone(), user::setTimezone);
-        applyIfChanged(isCreate, request.password(), user::setPassword);
+        applyPassword(user, request.password(), isCreate);
         applyIfChanged(isCreate, request.enterpriseEmployeeNumber(), user::setEnterpriseEmployeeNumber);
         applyIfChanged(isCreate, request.enterpriseCostCenter(), user::setEnterpriseCostCenter);
         applyIfChanged(isCreate, request.enterpriseOrganization(), user::setEnterpriseOrganization);
@@ -273,6 +285,22 @@ public class ScimAdminService {
         applyIfChanged(isCreate, request.enterpriseManagerValue(), user::setEnterpriseManagerValue);
         applyIfChanged(isCreate, request.enterpriseManagerRef(), user::setEnterpriseManagerRef);
         applyIfChanged(isCreate, request.enterpriseManagerDisplay(), user::setEnterpriseManagerDisplay);
+    }
+
+    private void applyPassword(ScimUser user, String rawPassword, boolean isCreate) {
+        if (rawPassword == null || rawPassword.isBlank()) {
+            if (isCreate) {
+                user.setPassword(null);
+            }
+            return;
+        }
+        int utf8Bytes = rawPassword.getBytes(StandardCharsets.UTF_8).length;
+        if (utf8Bytes > MAX_BCRYPT_PASSWORD_BYTES) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Password must not exceed " + MAX_BCRYPT_PASSWORD_BYTES + " UTF-8 bytes");
+        }
+        user.setPassword(passwordEncoder.encode(rawPassword));
     }
 
     private void applyIfChanged(boolean isCreate, String value, Consumer<String> setter) {
@@ -386,36 +414,115 @@ public class ScimAdminService {
             group.setExternalId(normalizeOptional(request.externalId()));
         }
         if (request.members() != null) {
-            group.getMembers().clear();
+            UUID wsId = group.getWorkspace() != null ? group.getWorkspace().getId() : null;
+            if (wsId == null) {
+                throw new IllegalStateException("Group requires a workspace id before resolving members");
+            }
+
+            Set<UUID> seenMembers = new HashSet<>();
+            Set<UUID> userMemberIds = new LinkedHashSet<>();
+            Set<UUID> groupMemberIds = new LinkedHashSet<>();
+            Map<UUID, ParsedGroupMember> desiredByMemberId = new LinkedHashMap<>();
+
             for (GroupUpsertRequest.Member member : request.members()) {
-                ScimGroupMembership membership = buildMembership(group, member);
-                if (membership != null) {
+                ParsedGroupMember parsed = parseGroupMember(group, member, seenMembers);
+                if (parsed == null) {
+                    continue;
+                }
+                desiredByMemberId.put(parsed.memberUuid(), parsed);
+                if (MEMBER_TYPE_GROUP.equals(parsed.memberType())) {
+                    groupMemberIds.add(parsed.memberUuid());
+                } else {
+                    userMemberIds.add(parsed.memberUuid());
+                }
+            }
+
+            Set<UUID> existingUserIds = userMemberIds.isEmpty()
+                    ? Set.of()
+                    : userRepository.findIdsByWorkspaceIdAndIdIn(wsId, userMemberIds);
+            Set<UUID> existingGroupIds = groupMemberIds.isEmpty()
+                    ? Set.of()
+                    : groupRepository.findIdsByWorkspaceIdAndIdIn(wsId, groupMemberIds);
+
+            for (ParsedGroupMember parsed : desiredByMemberId.values()) {
+                if (MEMBER_TYPE_GROUP.equals(parsed.memberType())) {
+                    if (!existingGroupIds.contains(parsed.memberUuid())) {
+                        throw new ResponseStatusException(
+                                HttpStatus.BAD_REQUEST,
+                                "Member group does not exist in workspace: " + parsed.memberUuid());
+                    }
+                } else if (!existingUserIds.contains(parsed.memberUuid())) {
+                    throw new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST,
+                            "Member user does not exist in workspace: " + parsed.memberUuid());
+                }
+            }
+
+            // Sync in place so Hibernate updates retained rows instead of inserting before orphan-delete
+            // (which would violate uk_scim_group_memberships_workspace_group_member).
+            Set<UUID> retainedIds = new HashSet<>();
+            var it = group.getMembers().iterator();
+            while (it.hasNext()) {
+                ScimGroupMembership existing = it.next();
+                ParsedGroupMember desired = desiredByMemberId.get(existing.getMemberValue());
+                if (desired == null) {
+                    it.remove();
+                } else {
+                    existing.setWorkspaceId(wsId);
+                    existing.setMemberType(desired.memberType());
+                    existing.setDisplay(desired.display());
+                    retainedIds.add(existing.getMemberValue());
+                }
+            }
+
+            for (ParsedGroupMember parsed : desiredByMemberId.values()) {
+                if (!retainedIds.contains(parsed.memberUuid())) {
+                    ScimGroupMembership membership = new ScimGroupMembership();
+                    membership.setGroup(group);
+                    membership.setWorkspaceId(wsId);
+                    membership.setMemberValue(parsed.memberUuid());
+                    membership.setMemberType(parsed.memberType());
+                    membership.setDisplay(parsed.display());
                     group.getMembers().add(membership);
                 }
             }
         }
     }
 
-    private ScimGroupMembership buildMembership(ScimGroup group, GroupUpsertRequest.Member member) {
+    private ParsedGroupMember parseGroupMember(ScimGroup group,
+                                               GroupUpsertRequest.Member member,
+                                               Set<UUID> seenMembers) {
         if (member == null || member.value() == null || member.value().isBlank()) {
             return null;
         }
-        ScimGroupMembership membership = new ScimGroupMembership();
-        membership.setGroup(group);
+        UUID memberUuid;
         try {
-            membership.setMemberValue(UUID.fromString(member.value().trim()));
+            memberUuid = UUID.fromString(member.value().trim());
         } catch (IllegalArgumentException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid member UUID: " + member.value(), ex);
         }
-        String memberType = normalizeOptional(member.type());
-        membership.setMemberType(memberType != null ? memberType : "User");
-        if ("Group".equalsIgnoreCase(membership.getMemberType())
-                && group.getId() != null
-                && group.getId().equals(membership.getMemberValue())) {
+        if (!seenMembers.add(memberUuid)) {
+            return null;
+        }
+
+        if (group.getId() != null && group.getId().equals(memberUuid)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Group cannot include itself as a member");
         }
-        membership.setDisplay(normalizeOptional(member.display()));
-        return membership;
+
+        String rawType = normalizeOptional(member.type());
+        String canonicalType;
+        if (rawType == null || MEMBER_TYPE_USER.equalsIgnoreCase(rawType)) {
+            canonicalType = MEMBER_TYPE_USER;
+        } else if (MEMBER_TYPE_GROUP.equalsIgnoreCase(rawType)) {
+            canonicalType = MEMBER_TYPE_GROUP;
+        } else {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported member type: " + rawType);
+        }
+
+        return new ParsedGroupMember(memberUuid, canonicalType, normalizeOptional(member.display()));
+    }
+
+    private record ParsedGroupMember(UUID memberUuid, String memberType, String display) {
     }
 
     private String normalizeRequired(String field, String value) {
@@ -426,7 +533,7 @@ public class ScimAdminService {
     }
 
     private String safeLower(String value) {
-        return value == null ? "" : value.toLowerCase();
+        return value == null ? "" : value.toLowerCase(Locale.ROOT);
     }
 
     

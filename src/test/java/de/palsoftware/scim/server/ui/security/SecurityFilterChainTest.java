@@ -9,11 +9,22 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
+import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -110,11 +121,28 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
         mockMvc.perform(get("/favicon.svg")).andExpect(status().isOk());
         mockMvc.perform(get("/fonts/fonts.css")).andExpect(status().isOk());
         mockMvc.perform(get("/css/workspace.css")).andExpect(status().isOk());
-        // workspace.js now depends on this file existing; a packaging slip would break every page's
-        // 401 handling while leaving the rest of the suite green.
+        // workspace.js and index.js depend on these files existing; a packaging slip would break
+        // page behaviour or 401 handling while leaving backend tests green.
         mockMvc.perform(get("/js/api-client.js"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("global.apiFetch")));
+        mockMvc.perform(get("/js/index.js"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("loadWorkspaces")));
+    }
+
+    @Test
+    void actuatorHealthBypassesOidcRedirectWhileOtherActuatorEndpointsAreDeniedOnMainPortWithoutKey() throws Exception {
+        // With management.server.port=9090 in application.yml, MockMvc (main context) does not mount
+        // Actuator handlers, so passing security reaches DispatcherServlet (404) instead of 302/401/403.
+        int healthStatus = mockMvc.perform(get("/actuator/health"))
+                .andReturn()
+                .getResponse()
+                .getStatus();
+        assertThat(healthStatus).isNotIn(302, 401, 403);
+
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isForbidden());
     }
 
     private static void assertNotSaved(ResultActions result, String what) throws Exception {
@@ -136,5 +164,53 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
         assertThat(session.getAttribute(SAVED_REQUEST))
                 .as("page navigations must be replayed after login")
                 .isNotNull();
+    }
+
+    @Test
+    void preDeployOidcSessionWithoutVerifiedEmail_returns401InsteadOf500OnApiAndInvalidatesSession() throws Exception {
+        MockHttpSession legacySession = buildPreDeployUnverifiedOidcSession();
+
+        mockMvc.perform(get("/api/workspaces")
+                        .session(legacySession)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized());
+
+        assertThat(legacySession.isInvalid()).isTrue();
+    }
+
+    @Test
+    void preDeployOidcSessionWithoutVerifiedEmail_redirectsToIdentityProviderInsteadOf500OnUiNavigation() throws Exception {
+        MockHttpSession legacySession = buildPreDeployUnverifiedOidcSession();
+
+        mockMvc.perform(get("/")
+                        .session(legacySession)
+                        .accept(MediaType.TEXT_HTML))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern(LOGIN_URL_PATTERN));
+
+        assertThat(legacySession.isInvalid()).isTrue();
+    }
+
+    private static MockHttpSession buildPreDeployUnverifiedOidcSession() {
+        Instant now = Instant.now();
+        OidcIdToken idToken = new OidcIdToken(
+                "legacy-id-token",
+                now,
+                now.plusSeconds(300),
+                Map.of("sub", "auth0|legacy-user", "preferred_username", "legacy@example.test"));
+        OidcUser legacyOidcUser = new DefaultOidcUser(
+                List.of(new SimpleGrantedAuthority("ROLE_USER")),
+                idToken);
+        OAuth2AuthenticationToken authToken = new OAuth2AuthenticationToken(
+                legacyOidcUser,
+                legacyOidcUser.getAuthorities(),
+                "auth0");
+
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authToken);
+
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
+        return session;
     }
 }

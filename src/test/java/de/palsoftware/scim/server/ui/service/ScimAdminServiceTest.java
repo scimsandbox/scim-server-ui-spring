@@ -1,14 +1,15 @@
 package de.palsoftware.scim.server.ui.service;
 
+import de.palsoftware.scim.server.ui.dto.GroupUpsertRequest;
+import de.palsoftware.scim.server.ui.dto.UserUpsertRequest;
 import de.palsoftware.scim.server.ui.model.ScimGroup;
+import de.palsoftware.scim.server.ui.model.ScimGroupMembership;
 import de.palsoftware.scim.server.ui.model.ScimUser;
 import de.palsoftware.scim.server.ui.model.Workspace;
 import de.palsoftware.scim.server.ui.repository.ScimGroupMembershipRepository;
 import de.palsoftware.scim.server.ui.repository.ScimGroupRepository;
 import de.palsoftware.scim.server.ui.repository.ScimUserRepository;
 import de.palsoftware.scim.server.ui.repository.WorkspaceRepository;
-import de.palsoftware.scim.server.ui.dto.GroupUpsertRequest;
-import de.palsoftware.scim.server.ui.dto.UserUpsertRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,21 +19,29 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ScimAdminServiceTest {
+
+    private static final String BCRYPT_REGEX = "^\\$2[aby]\\$[0-9]{2}\\$.{53}$";
 
     @Mock
     private WorkspaceRepository workspaceRepository;
@@ -116,7 +125,7 @@ class ScimAdminServiceTest {
         assertThat(result.getTotalElements()).isZero();
     }
 
-    // ─── createUser ─────────────────────────────────────────────────────
+    // ─── createUser & Authorization Ordering ────────────────────────────
 
     @Test
     void createUser_success() {
@@ -130,11 +139,27 @@ class ScimAdminServiceTest {
         ScimUser result = service.createUser(workspaceId, buildUserRequest("newuser"), "admin", true);
 
         assertThat(result.getUserName()).isEqualTo("newuser");
+        assertThat(result.getPassword()).isNull();
         verify(userRepository).save(any(ScimUser.class));
     }
 
     @Test
+    void createUser_unauthorizedWorkspace_checksAccessBeforeUserExistenceLookup() {
+        when(workspaceRepository.findByIdAndCreatedByUsername(workspaceId, "intruder"))
+                .thenReturn(Optional.empty());
+        UserUpsertRequest request = buildUserRequest("existing");
+
+        assertThatThrownBy(() -> service.createUser(workspaceId, request, "intruder", false))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
+
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
     void createUser_duplicate_throwsConflict() {
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
         when(userRepository.existsByUserNameIgnoreCaseAndWorkspaceId("existing", workspaceId))
                 .thenReturn(true);
 
@@ -147,10 +172,93 @@ class ScimAdminServiceTest {
 
     @Test
     void createUser_missingUserName_throwsBadRequest() {
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
         UserUpsertRequest request = buildUserRequest("");
 
         assertThatThrownBy(() -> service.createUser(workspaceId, request, "admin", true))
                 .isInstanceOf(ResponseStatusException.class);
+    }
+
+    // ─── BCrypt Password Hashing & >72-byte Rejection ───────────────────
+
+    @Test
+    void createUser_withPassword_storesBcryptHashAndNeverPlaintext() {
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
+        when(userRepository.save(any(ScimUser.class))).thenAnswer(i -> i.getArgument(0));
+
+        ScimUser result = service.createUser(
+                workspaceId,
+                buildUserRequestWithPassword("alice", "S3cretP@ssw0rd!"),
+                "admin",
+                true);
+
+        assertThat(result.getPassword())
+                .isNotNull()
+                .doesNotContain("S3cretP@ssw0rd!")
+                .matches(BCRYPT_REGEX);
+        assertThat(new BCryptPasswordEncoder().matches("S3cretP@ssw0rd!", result.getPassword())).isTrue();
+    }
+
+    @Test
+    void createUser_passwordOver72Utf8Bytes_throwsBadRequest() {
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
+        // 25 3-byte UTF-8 characters = 75 bytes (> 72 UTF-8 byte BCrypt limit despite length 25)
+        String multiBytePassword = "€".repeat(25);
+        UserUpsertRequest request = buildUserRequestWithPassword("alice", multiBytePassword);
+
+        assertThatThrownBy(() -> service.createUser(workspaceId, request, "admin", true))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.BAD_REQUEST))
+                .hasMessageContaining("72 UTF-8 bytes");
+    }
+
+    @Test
+    void updateUser_blankPassword_preservesExistingBcryptHash() {
+        ScimUser existing = buildUser("alice");
+        existing.setId(userId);
+        String existingHash = new BCryptPasswordEncoder().encode("InitialPass123!");
+        existing.setPassword(existingHash);
+
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
+        when(userRepository.findByIdAndWorkspaceId(userId, workspaceId)).thenReturn(Optional.of(existing));
+        when(userRepository.save(any(ScimUser.class))).thenAnswer(i -> i.getArgument(0));
+
+        ScimUser result = service.updateUser(
+                workspaceId,
+                userId,
+                buildUserRequestWithPassword("alice", "   "),
+                "admin",
+                true);
+
+        assertThat(result.getPassword()).isEqualTo(existingHash);
+    }
+
+    @Test
+    void updateUser_newPassword_replacesWithNewBcryptHashAndRejectsOver72Bytes() {
+        ScimUser existing = buildUser("alice");
+        existing.setId(userId);
+        existing.setPassword(new BCryptPasswordEncoder().encode("OldPass123!"));
+
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
+        when(userRepository.findByIdAndWorkspaceId(userId, workspaceId)).thenReturn(Optional.of(existing));
+        when(userRepository.save(any(ScimUser.class))).thenAnswer(i -> i.getArgument(0));
+
+        ScimUser updated = service.updateUser(
+                workspaceId,
+                userId,
+                buildUserRequestWithPassword("alice", "UpdatedPass456!"),
+                "admin",
+                true);
+
+        assertThat(updated.getPassword()).matches(BCRYPT_REGEX);
+        assertThat(new BCryptPasswordEncoder().matches("UpdatedPass456!", updated.getPassword())).isTrue();
+
+        UserUpsertRequest tooLong = buildUserRequestWithPassword("alice", "a".repeat(73));
+        assertThatThrownBy(() -> service.updateUser(workspaceId, userId, tooLong, "admin", true))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.BAD_REQUEST));
     }
 
     // ─── updateUser ─────────────────────────────────────────────────────
@@ -215,7 +323,7 @@ class ScimAdminServiceTest {
         assertThat(result.getPhoneNumbers().get(0).getValue()).isEqualTo("123-456");
     }
 
-    // ─── deleteUser ─────────────────────────────────────────────────────
+    // ─── deleteUser / deleteAllUsers ────────────────────────────────────
 
     @Test
     void deleteUser_success() {
@@ -226,7 +334,7 @@ class ScimAdminServiceTest {
 
         service.deleteUser(workspaceId, userId, "admin", true);
 
-        verify(membershipRepository).deleteByMemberValue(userId);
+        verify(membershipRepository).deleteByWorkspaceIdAndMemberValue(workspaceId, userId);
         verify(userRepository).delete(existing);
     }
 
@@ -239,8 +347,6 @@ class ScimAdminServiceTest {
                 .isInstanceOf(ResponseStatusException.class);
     }
 
-    // ─── deleteAllUsers ─────────────────────────────────────────────────
-
     @Test
     void deleteAllUsers_success() {
         when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
@@ -248,11 +354,11 @@ class ScimAdminServiceTest {
 
         service.deleteAllUsers(workspaceId, "admin", true);
 
-        verify(membershipRepository).deleteByMemberValueIn(List.of(userId));
+        verify(membershipRepository).deleteByWorkspaceIdAndMemberValueIn(workspaceId, List.of(userId));
         verify(userRepository).deleteAllByWorkspaceId(workspaceId);
     }
 
-    // ─── Groups ─────────────────────────────────────────────────────────
+    // ─── Groups & Scoped Membership Enforcement ─────────────────────────
 
     @Test
     void createGroup_success() {
@@ -270,7 +376,22 @@ class ScimAdminServiceTest {
     }
 
     @Test
+    void createGroup_unauthorizedWorkspace_checksAccessBeforeGroupExistenceLookup() {
+        when(workspaceRepository.findByIdAndCreatedByUsername(workspaceId, "intruder"))
+                .thenReturn(Optional.empty());
+        GroupUpsertRequest request = new GroupUpsertRequest("Team A", null, null);
+
+        assertThatThrownBy(() -> service.createGroup(workspaceId, request, "intruder", false))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
+
+        verifyNoInteractions(groupRepository);
+    }
+
+    @Test
     void createGroup_duplicate_throwsConflict() {
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
         when(groupRepository.existsByDisplayNameAndWorkspaceId("Team A", workspaceId)).thenReturn(true);
 
         GroupUpsertRequest request = new GroupUpsertRequest("Team A", null, null);
@@ -280,17 +401,159 @@ class ScimAdminServiceTest {
     }
 
     @Test
+    void createGroup_crossWorkspaceUserMember_throwsBadRequest() {
+        UUID foreignUserId = UUID.randomUUID();
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
+        when(userRepository.findIdsByWorkspaceIdAndIdIn(eq(workspaceId), any())).thenReturn(Set.of());
+
+        GroupUpsertRequest request = new GroupUpsertRequest(
+                "Team A",
+                null,
+                List.of(new GroupUpsertRequest.Member(foreignUserId.toString(), "User", "Foreign User")));
+
+        assertThatThrownBy(() -> service.createGroup(workspaceId, request, "admin", true))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.BAD_REQUEST))
+                .hasMessageContaining("does not exist in workspace");
+    }
+
+    @Test
+    void createGroup_crossWorkspaceGroupMember_throwsBadRequest() {
+        UUID foreignGroupId = UUID.randomUUID();
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
+        when(groupRepository.findIdsByWorkspaceIdAndIdIn(eq(workspaceId), any())).thenReturn(Set.of());
+
+        GroupUpsertRequest request = new GroupUpsertRequest(
+                "Team A",
+                null,
+                List.of(new GroupUpsertRequest.Member(foreignGroupId.toString(), "Group", "Foreign Group")));
+
+        assertThatThrownBy(() -> service.createGroup(workspaceId, request, "admin", true))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.BAD_REQUEST))
+                .hasMessageContaining("does not exist in workspace");
+    }
+
+    @Test
+    void createGroup_sameWorkspaceMembers_succeedsDeduplicatesAndBatchesQueries() {
+        UUID secondUserId = UUID.randomUUID();
+        UUID nestedGroupId = UUID.randomUUID();
+        UUID secondGroupId = UUID.randomUUID();
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
+        when(userRepository.findIdsByWorkspaceIdAndIdIn(eq(workspaceId), any()))
+                .thenReturn(Set.of(userId, secondUserId));
+        when(groupRepository.findIdsByWorkspaceIdAndIdIn(eq(workspaceId), any()))
+                .thenReturn(Set.of(nestedGroupId, secondGroupId));
+        when(groupRepository.save(any(ScimGroup.class))).thenAnswer(i -> i.getArgument(0));
+
+        GroupUpsertRequest request = new GroupUpsertRequest(
+                "Team A",
+                "EXT-1",
+                List.of(
+                        new GroupUpsertRequest.Member(userId.toString(), "user", "Alice"),
+                        new GroupUpsertRequest.Member(userId.toString(), "User", "Alice Duplicate"),
+                        new GroupUpsertRequest.Member(secondUserId.toString(), "User", "Bob"),
+                        new GroupUpsertRequest.Member(nestedGroupId.toString(), "group", "Subteam 1"),
+                        new GroupUpsertRequest.Member(secondGroupId.toString(), "Group", "Subteam 2")));
+
+        ScimGroup saved = service.createGroup(workspaceId, request, "admin", true);
+
+        assertThat(saved.getMembers()).hasSize(4);
+        assertThat(saved.getMembers().get(0).getWorkspaceId()).isEqualTo(workspaceId);
+        assertThat(saved.getMembers().get(0).getMemberType()).isEqualTo("User");
+        assertThat(saved.getMembers().get(2).getMemberType()).isEqualTo("Group");
+        verify(userRepository, times(1)).findIdsByWorkspaceIdAndIdIn(eq(workspaceId), any());
+        verify(groupRepository, times(1)).findIdsByWorkspaceIdAndIdIn(eq(workspaceId), any());
+    }
+
+    @Test
+    void updateGroup_syncsMembersInPlaceRetainingExistingEntityInstance() {
+        UUID droppedUserId = UUID.randomUUID();
+        UUID addedUserId = UUID.randomUUID();
+
+        ScimGroup existingGroup = new ScimGroup();
+        existingGroup.setId(groupId);
+        existingGroup.setWorkspace(workspace);
+        existingGroup.setDisplayName("Team A");
+
+        ScimGroupMembership retainedMembership = new ScimGroupMembership();
+        retainedMembership.setId(UUID.randomUUID());
+        retainedMembership.setGroup(existingGroup);
+        retainedMembership.setWorkspaceId(workspaceId);
+        retainedMembership.setMemberValue(userId);
+        retainedMembership.setMemberType("User");
+        retainedMembership.setDisplay("Old Alice Display");
+
+        ScimGroupMembership droppedMembership = new ScimGroupMembership();
+        droppedMembership.setId(UUID.randomUUID());
+        droppedMembership.setGroup(existingGroup);
+        droppedMembership.setWorkspaceId(workspaceId);
+        droppedMembership.setMemberValue(droppedUserId);
+        droppedMembership.setMemberType("User");
+        droppedMembership.setDisplay("Dropped User");
+
+        existingGroup.getMembers().add(retainedMembership);
+        existingGroup.getMembers().add(droppedMembership);
+
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
+        when(groupRepository.findByIdAndWorkspaceId(groupId, workspaceId)).thenReturn(Optional.of(existingGroup));
+        when(userRepository.findIdsByWorkspaceIdAndIdIn(eq(workspaceId), any()))
+                .thenReturn(Set.of(userId, addedUserId));
+        when(groupRepository.save(any(ScimGroup.class))).thenAnswer(i -> i.getArgument(0));
+
+        GroupUpsertRequest request = new GroupUpsertRequest(
+                "Team A",
+                "EXT-UPDATED",
+                List.of(
+                        new GroupUpsertRequest.Member(userId.toString(), "User", "Updated Alice Display"),
+                        new GroupUpsertRequest.Member(addedUserId.toString(), "User", "New Bob")));
+
+        ScimGroup updated = service.updateGroup(workspaceId, groupId, request, "admin", true);
+
+        assertThat(updated.getMembers()).hasSize(2);
+        assertThat(updated.getMembers().get(0)).isSameAs(retainedMembership);
+        assertThat(retainedMembership.getDisplay()).isEqualTo("Updated Alice Display");
+        assertThat(updated.getMembers().get(1).getMemberValue()).isEqualTo(addedUserId);
+    }
+
+    @Test
+    void updateGroup_selfMembershipRegardlessOfType_throwsBadRequest() {
+        ScimGroup existingGroup = new ScimGroup();
+        existingGroup.setId(groupId);
+        existingGroup.setWorkspace(workspace);
+        existingGroup.setDisplayName("Team A");
+
+        when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
+        when(groupRepository.findByIdAndWorkspaceId(groupId, workspaceId)).thenReturn(Optional.of(existingGroup));
+
+        for (String memberType : new String[]{"Group", "User", null}) {
+            GroupUpsertRequest selfMemberReq = new GroupUpsertRequest(
+                    "Team A",
+                    null,
+                    List.of(new GroupUpsertRequest.Member(groupId.toString(), memberType, "Self")));
+            assertThatThrownBy(() -> service.updateGroup(workspaceId, groupId, selfMemberReq, "admin", true))
+                    .isInstanceOf(ResponseStatusException.class)
+                    .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                            .isEqualTo(HttpStatus.BAD_REQUEST))
+                    .hasMessageContaining("itself");
+        }
+    }
+
+    @Test
     void deleteGroup_success() {
         ScimGroup group = new ScimGroup();
         group.setId(groupId);
+        group.setWorkspace(workspace);
         group.setDisplayName("Team A");
         when(workspaceRepository.findById(workspaceId)).thenReturn(Optional.of(workspace));
         when(groupRepository.findByIdAndWorkspaceId(groupId, workspaceId)).thenReturn(Optional.of(group));
 
         service.deleteGroup(workspaceId, groupId, "admin", true);
 
-        verify(membershipRepository).deleteByMemberValue(groupId);
-        verify(membershipRepository).deleteByGroupId(groupId);
+        verify(membershipRepository).deleteByWorkspaceIdAndMemberValue(workspaceId, groupId);
+        verify(membershipRepository).deleteByWorkspaceIdAndGroupId(workspaceId, groupId);
         verify(groupRepository).delete(group);
     }
 
@@ -301,8 +564,8 @@ class ScimAdminServiceTest {
 
         service.deleteAllGroups(workspaceId, "admin", true);
 
-        verify(membershipRepository).deleteByMemberValueIn(List.of(groupId));
-        verify(membershipRepository).deleteByGroupIdIn(List.of(groupId));
+        verify(membershipRepository).deleteByWorkspaceIdAndMemberValueIn(workspaceId, List.of(groupId));
+        verify(membershipRepository).deleteByWorkspaceIdAndGroupIdIn(workspaceId, List.of(groupId));
         verify(groupRepository).deleteAllByWorkspaceId(workspaceId);
     }
 
@@ -329,10 +592,14 @@ class ScimAdminServiceTest {
     }
 
     private UserUpsertRequest buildUserRequest(String userName) {
+        return buildUserRequestWithPassword(userName, null);
+    }
+
+    private UserUpsertRequest buildUserRequestWithPassword(String userName, String password) {
         return new UserUpsertRequest(
                 userName, "Display", true, null,
                 null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, password,
                 null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null);
     }

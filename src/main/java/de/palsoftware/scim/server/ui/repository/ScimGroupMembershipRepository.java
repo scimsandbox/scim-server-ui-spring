@@ -11,25 +11,19 @@ import java.util.UUID;
 
 public interface ScimGroupMembershipRepository extends JpaRepository<ScimGroupMembership, UUID> {
 
-    @Query("SELECT m FROM ScimGroupMembership m JOIN FETCH m.group WHERE m.memberValue = :memberValue")
-    List<ScimGroupMembership> findByMemberValue(@Param("memberValue") UUID memberValue);
-
-    @Query("SELECT m FROM ScimGroupMembership m JOIN FETCH m.group WHERE m.memberValue IN :memberValues")
-    List<ScimGroupMembership> findByMemberValueIn(@Param("memberValues") List<UUID> memberValues);
+    @Modifying
+    @Query("delete from ScimGroupMembership membership where membership.workspaceId = :workspaceId and membership.memberValue = :memberValue")
+    long deleteByWorkspaceIdAndMemberValue(@Param("workspaceId") UUID workspaceId, @Param("memberValue") UUID memberValue);
 
     @Modifying
-    @Query("delete from ScimGroupMembership membership where membership.memberValue = :memberValue")
-    long deleteByMemberValue(@Param("memberValue") UUID memberValue);
+    @Query("delete from ScimGroupMembership membership where membership.workspaceId = :workspaceId and membership.memberValue in :memberValues")
+    long deleteByWorkspaceIdAndMemberValueIn(@Param("workspaceId") UUID workspaceId, @Param("memberValues") List<UUID> memberValues);
 
     @Modifying
-    @Query("delete from ScimGroupMembership membership where membership.memberValue in :memberValues")
-    long deleteByMemberValueIn(@Param("memberValues") List<UUID> memberValues);
+    @Query("delete from ScimGroupMembership membership where membership.workspaceId = :workspaceId and membership.group.id = :groupId")
+    long deleteByWorkspaceIdAndGroupId(@Param("workspaceId") UUID workspaceId, @Param("groupId") UUID groupId);
 
     @Modifying
-    @Query("delete from ScimGroupMembership membership where membership.group.id = :groupId")
-    long deleteByGroupId(@Param("groupId") UUID groupId);
-
-    @Modifying
-    @Query("delete from ScimGroupMembership membership where membership.group.id in :groupIds")
-    long deleteByGroupIdIn(@Param("groupIds") List<UUID> groupIds);
+    @Query("delete from ScimGroupMembership membership where membership.workspaceId = :workspaceId and membership.group.id in :groupIds")
+    long deleteByWorkspaceIdAndGroupIdIn(@Param("workspaceId") UUID workspaceId, @Param("groupIds") List<UUID> groupIds);
 }

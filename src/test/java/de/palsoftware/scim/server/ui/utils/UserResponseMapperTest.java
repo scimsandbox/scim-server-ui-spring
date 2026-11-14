@@ -30,4 +30,19 @@ class UserResponseMapperTest {
             .containsEntry("photos", List.of())
             .containsEntry("x509Certificates", List.of());
     }
+
+    @Test
+    void userToMapNeverExposesPasswordOrPasswordHash() {
+        ScimUser user = new ScimUser();
+        user.setId(UUID.randomUUID());
+        user.setUserName("alice@example.test");
+        user.setPassword("$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234");
+
+        Map<String, Object> fullMap = UserResponseMapper.userToMap(user);
+        Map<String, Object> lookupMap = UserResponseMapper.userLookupToMap(user);
+
+        assertThat(fullMap).doesNotContainKey("password");
+        assertThat(fullMap.toString()).doesNotContain("$2a$10$");
+        assertThat(lookupMap).doesNotContainKey("password");
+    }
 }

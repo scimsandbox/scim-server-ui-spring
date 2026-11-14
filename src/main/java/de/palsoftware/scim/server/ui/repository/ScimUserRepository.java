@@ -9,13 +9,18 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public interface ScimUserRepository extends JpaRepository<ScimUser, UUID>, JpaSpecificationExecutor<ScimUser> {
 
     Optional<ScimUser> findByIdAndWorkspaceId(UUID id, UUID workspaceId);
+
+    @Query("SELECT u.id FROM ScimUser u WHERE u.workspace.id = :workspaceId AND u.id IN :ids")
+    Set<UUID> findIdsByWorkspaceIdAndIdIn(@Param("workspaceId") UUID workspaceId, @Param("ids") Collection<UUID> ids);
 
     Optional<ScimUser> findByUserNameIgnoreCaseAndWorkspaceId(String userName, UUID workspaceId);
 

@@ -2,15 +2,13 @@ package de.palsoftware.scim.server.ui.controller;
 
 import de.palsoftware.scim.server.ui.security.AuthenticatedUser;
 import de.palsoftware.scim.server.ui.service.MgmtUserService;
+import de.palsoftware.scim.server.ui.utils.HttpUrlUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-
-import java.net.URI;
-import java.net.URISyntaxException;
 
 /**
  * Server-side rendered management UI using Thymeleaf.
@@ -28,34 +26,14 @@ public class UiController {
             @Value("${app.validator.url}") String validatorUrl,
             @Value("${app.website.url}") String websiteUrl) {
         this.mgmtUserService = mgmtUserService;
-        this.scimApiBaseUrl = scimApiBaseUrl;
-        this.validatorUrl = validatorUrl;
-        this.websiteUrl = normalizeWebsiteUrl(websiteUrl);
-    }
-
-    /**
-     * The website URL is required configuration. It is concatenated with fixed paths in the templates
-     * and used as a link target, so it must be an absolute http(s) URL with a host, and trailing
-     * slashes are stripped to avoid {@code //news/index.json}.
-     */
-    private static String normalizeWebsiteUrl(String websiteUrl) {
-        String normalized = websiteUrl == null ? "" : websiteUrl.trim();
-        int end = normalized.length();
-        while (end > 0 && normalized.charAt(end - 1) == '/') {
-            end--;
-        }
-        normalized = normalized.substring(0, end);
-        try {
-            URI uri = new URI(normalized);
-            String scheme = uri.getScheme();
-            boolean http = "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
-            if (http && uri.getHost() != null) {
-                return normalized;
-            }
-        } catch (URISyntaxException ex) {
-            // fall through to the descriptive error below
-        }
-        throw new IllegalStateException(
+        this.scimApiBaseUrl = HttpUrlUtils.normalizeHttpUrl(
+                scimApiBaseUrl,
+                "app.scim-api.base.url (APP_SCIM_API_BASE_URL) must be an absolute http(s) URL, e.g. https://api.scimsandbox.net");
+        this.validatorUrl = HttpUrlUtils.normalizeHttpUrl(
+                validatorUrl,
+                "app.validator.url (APP_VALIDATOR_URL) must be an absolute http(s) URL, e.g. https://validator.scimsandbox.net");
+        this.websiteUrl = HttpUrlUtils.normalizeHttpUrl(
+                websiteUrl,
                 "app.website.url (APP_WEBSITE_URL) must be an absolute http(s) URL, e.g. https://scimsandbox.net");
     }
 

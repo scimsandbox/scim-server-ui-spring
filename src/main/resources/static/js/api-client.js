@@ -1,5 +1,6 @@
 /*
- * Shared API client for the management UI, loaded by both index.html and workspace.html.
+ * Shared API client and UI/URL helpers for the management UI, loaded first by both
+ * index.html and workspace.html before dock-news.js, index.js, and workspace.js.
  * Session-expiry handling lives here so a 401 behaves identically on every page.
  */
 (function (global) {
@@ -7,6 +8,37 @@
     const CSRF_HEADER = document.querySelector('meta[name="_csrf_header"]')?.content || 'X-CSRF-TOKEN';
 
     let sessionExpired = false;
+
+    function esc(value) {
+        if (value == null) {
+            return '';
+        }
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function parseHttpUrl(rawUrl) {
+        if (!rawUrl) {
+            return null;
+        }
+        try {
+            const parsed = new URL(String(rawUrl).trim(), global.location.href);
+            if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                return parsed;
+            }
+        } catch {
+            // Invalid URL
+        }
+        return null;
+    }
+
+    function sanitizeHttpUrl(rawUrl) {
+        return parseHttpUrl(rawUrl)?.href || null;
+    }
 
     // The reload is asynchronous, so callers still receive the 401 and paint their own failure text
     // ("Failed to load users.", "Request failed") in the moment before the navigation commits. Cover
@@ -19,12 +51,27 @@
             overlay.id = 'sessionReloadOverlay';
             overlay.className = 'blocking-overlay session-reload-overlay';
             overlay.setAttribute('role', 'status');
-            overlay.innerHTML = '<div class="blocking-overlay-card">'
-                + '<div class="blocking-overlay-spinner"></div>'
-                + '<div>'
-                + '<div class="blocking-overlay-title">Session expired</div>'
-                + '<div class="blocking-overlay-copy">Signing you back in…</div>'
-                + '</div></div>';
+
+            const card = document.createElement('div');
+            card.className = 'blocking-overlay-card';
+
+            const spinner = document.createElement('div');
+            spinner.className = 'blocking-overlay-spinner';
+
+            const copyWrap = document.createElement('div');
+            const title = document.createElement('div');
+            title.className = 'blocking-overlay-title';
+            title.textContent = 'Session expired';
+
+            const copy = document.createElement('div');
+            copy.className = 'blocking-overlay-copy';
+            copy.textContent = 'Signing you back in…';
+
+            copyWrap.appendChild(title);
+            copyWrap.appendChild(copy);
+            card.appendChild(spinner);
+            card.appendChild(copyWrap);
+            overlay.appendChild(card);
             document.body.appendChild(overlay);
         }
         overlay.classList.add('active');
@@ -66,6 +113,19 @@
         return res;
     }
 
+    document.addEventListener('click', (event) => {
+        const trigger = event.target instanceof Element
+            ? event.target.closest('[data-action="sign-in-again"]')
+            : null;
+        if (trigger) {
+            event.preventDefault();
+            signInAgain();
+        }
+    });
+
     global.apiFetch = apiFetch;
     global.signInAgain = signInAgain;
+    global.esc = esc;
+    global.parseHttpUrl = parseHttpUrl;
+    global.sanitizeHttpUrl = sanitizeHttpUrl;
 })(globalThis);
