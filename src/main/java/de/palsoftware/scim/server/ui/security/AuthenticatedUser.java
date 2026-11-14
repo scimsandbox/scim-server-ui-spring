@@ -1,5 +1,6 @@
 package de.palsoftware.scim.server.ui.security;
 
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
@@ -14,21 +15,28 @@ public final class AuthenticatedUser {
 
     public static String email(Authentication authentication) {
         if (authentication == null) {
-            throw new IllegalStateException("Missing authentication");
+            throw new InvalidAuthenticatedPrincipalException("Missing authentication");
+        }
+        String resolved = resolveEmail(authentication);
+        if (resolved != null) {
+            return resolved;
+        }
+        if (authentication.getPrincipal() instanceof OidcUser) {
+            throw new InvalidAuthenticatedPrincipalException("Authenticated principal is missing a verified email address");
+        }
+        throw new InvalidAuthenticatedPrincipalException("Unable to resolve authenticated email");
+    }
+
+    public static String resolveEmail(Authentication authentication) {
+        if (authentication == null || authentication instanceof AnonymousAuthenticationToken) {
+            return null;
         }
         Object principal = authentication.getPrincipal();
         if (principal instanceof OidcUser oidcUser) {
-            String resolved = resolveEmail(oidcUser);
-            if (resolved != null) {
-                return resolved;
-            }
-            throw new IllegalStateException("Authenticated principal is missing a verified email address");
+            return resolveEmail(oidcUser);
         }
         String fallback = authentication.getName();
-        if (fallback == null || fallback.isBlank()) {
-            throw new IllegalStateException("Unable to resolve authenticated email");
-        }
-        return fallback;
+        return (fallback == null || fallback.isBlank()) ? null : fallback;
     }
 
     public static String displayName(Authentication authentication) {
@@ -54,8 +62,9 @@ public final class AuthenticatedUser {
         if (oidcUser == null) {
             return false;
         }
-        if (Boolean.TRUE.equals(oidcUser.getEmailVerified())) {
-            return true;
+        Boolean directVerified = oidcUser.getEmailVerified();
+        if (directVerified != null) {
+            return directVerified;
         }
         Map<String, Object> claims = oidcUser.getClaims();
         if (claims != null) {

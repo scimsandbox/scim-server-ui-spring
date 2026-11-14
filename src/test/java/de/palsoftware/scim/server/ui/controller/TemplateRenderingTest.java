@@ -64,6 +64,59 @@ class TemplateRenderingTest extends PostgresIntegrationTestSupport {
         assertThat(html.indexOf("/js/api-client.js"))
                 .as("api-client.js must be loaded before workspace.js, which depends on apiFetch")
                 .isLessThan(html.indexOf("/js/workspace.js"));
+        assertThat(html.indexOf("/js/api-client.js"))
+                .as("api-client.js must be loaded before dock-news.js, which depends on sanitizeHttpUrl")
+                .isLessThan(html.indexOf("/js/dock-news.js"));
+        assertThat(html)
+                .as("Validator fallback credentials must use a dedicated modal separate from manual token creation")
+                .contains("id=\"createTokenModal\"")
+                .contains("<h3>Create Access Token</h3>")
+                .contains("id=\"validatorTokenModal\"")
+                .contains("id=\"validatorFallbackBaseUrl\"")
+                .contains("id=\"validatorFallbackTokenValue\"")
+                .contains("data-action=\"copy-validator-base-url\"")
+                .contains("data-action=\"copy-validator-token\"")
+                .contains("data-action=\"hide-validator-token-modal\"");
+    }
+
+    @Test
+    void sharedJsHelpersLiveInApiClientWithoutDuplicationAndValidatorHandoffHasFallback() throws Exception {
+        String apiClientJs = mockMvc.perform(get("/js/api-client.js"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String indexJs = mockMvc.perform(get("/js/index.js"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String workspaceJs = mockMvc.perform(get("/js/workspace.js"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String dockNewsJs = mockMvc.perform(get("/js/dock-news.js"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(apiClientJs)
+                .contains("global.esc = esc")
+                .contains("global.parseHttpUrl = parseHttpUrl")
+                .contains("global.sanitizeHttpUrl = sanitizeHttpUrl");
+
+        for (String script : java.util.List.of(indexJs, workspaceJs, dockNewsJs)) {
+            assertThat(script)
+                    .doesNotContain("function esc(")
+                    .doesNotContain("function parseHttpUrl(")
+                    .doesNotContain("function sanitizeHttpUrl(");
+        }
+
+        assertThat(workspaceJs)
+                .doesNotContain("valWin.opener = null")
+                .contains("SCIM_VALIDATOR_ACK")
+                .contains("event.source !== valWin")
+                .doesNotContain("event.source != null && event.source !== valWin")
+                .contains("revealValidatorFallbackToken")
+                .contains("hideValidatorTokenModal")
+                .contains("validatorTokenModal")
+                .contains("validatorFallbackBaseUrl")
+                .contains("validatorFallbackTokenValue")
+                .doesNotContain("The generated token is in the token list");
     }
 
     private MvcResult renderResult(String path) throws Exception {

@@ -1,20 +1,8 @@
-// apiFetch() and signInAgain() come from /js/api-client.js, loaded before this file.
+// apiFetch(), signInAgain(), and esc() come from /js/api-client.js, loaded before this file.
 (function () {
     const API = '/api';
     const statsCache = new Map();
     let blockingActionInFlight = false;
-
-    function esc(s) {
-        if (s == null) {
-            return '';
-        }
-        return String(s)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
 
     async function loadWorkspaces() {
         try {

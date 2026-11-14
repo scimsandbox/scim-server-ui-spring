@@ -1,6 +1,7 @@
 package de.palsoftware.scim.server.ui.security;
 
 import de.palsoftware.scim.server.ui.service.MgmtUserService;
+import de.palsoftware.scim.server.ui.utils.HttpUrlUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -38,13 +39,10 @@ import org.springframework.security.web.util.matcher.RequestHeaderRequestMatcher
 import org.springframework.security.web.util.matcher.RequestMatcher;
 
 import java.lang.reflect.Array;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 @Configuration
@@ -120,6 +118,9 @@ public class SecurityConfig {
 
         http.addFilterBefore(
                 new ActuatorApiKeyAuthFilter(actuatorApiKey, managementPort, serverPort),
+                OAuth2AuthorizationRequestRedirectFilter.class)
+            .addFilterBefore(
+                new VerifiedPrincipalSessionFilter(),
                 OAuth2AuthorizationRequestRedirectFilter.class)
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
@@ -198,17 +199,11 @@ public class SecurityConfig {
     }
 
     OidcUser mapAndProvisionOidcUser(OidcUser oidcUser) {
-        if (!AuthenticatedUser.isEmailVerified(oidcUser)) {
-            throw new OAuth2AuthenticationException(
-                    new OAuth2Error(INVALID_TOKEN_ERROR,
-                            "A verified email claim (email_verified=true) is required for management access",
-                            null));
-        }
         String email = AuthenticatedUser.resolveEmail(oidcUser);
         if (email == null) {
             throw new OAuth2AuthenticationException(
                     new OAuth2Error(INVALID_TOKEN_ERROR,
-                            "A verified email claim is required for management access",
+                            "A verified email claim (email_verified=true) is required for management access",
                             null));
         }
 
@@ -221,7 +216,7 @@ public class SecurityConfig {
     }
 
     static String buildContentSecurityPolicy(String websiteUrl) {
-        String websiteOrigin = extractHttpOrigin(websiteUrl);
+        String websiteOrigin = HttpUrlUtils.extractHttpOrigin(websiteUrl);
         String connectSrc = websiteOrigin != null ? "'self' " + websiteOrigin : "'self'";
         return "default-src 'self'; "
                 + "script-src 'self'; "
@@ -232,30 +227,6 @@ public class SecurityConfig {
                 + "object-src 'none'; "
                 + "base-uri 'self'; "
                 + "frame-ancestors 'none'";
-    }
-
-    private static String extractHttpOrigin(String rawUrl) {
-        if (rawUrl == null || rawUrl.isBlank()) {
-            return null;
-        }
-        try {
-            URI uri = new URI(rawUrl.trim());
-            String scheme = uri.getScheme();
-            String host = uri.getHost();
-            if (scheme == null || host == null) {
-                return null;
-            }
-            String lowerScheme = scheme.toLowerCase(Locale.ROOT);
-            if (!"http".equals(lowerScheme) && !"https".equals(lowerScheme)) {
-                return null;
-            }
-            int port = uri.getPort();
-            return port > 0
-                    ? lowerScheme + "://" + host.toLowerCase(Locale.ROOT) + ":" + port
-                    : lowerScheme + "://" + host.toLowerCase(Locale.ROOT);
-        } catch (URISyntaxException ex) {
-            return null;
-        }
     }
 
     @SuppressWarnings("java:S3330")

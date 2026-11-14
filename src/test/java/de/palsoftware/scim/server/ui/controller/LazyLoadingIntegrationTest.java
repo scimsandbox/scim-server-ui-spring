@@ -1,5 +1,6 @@
 package de.palsoftware.scim.server.ui.controller;
 
+import de.palsoftware.scim.server.ui.dto.GroupUpsertRequest;
 import de.palsoftware.scim.server.ui.model.ScimGroup;
 import de.palsoftware.scim.server.ui.model.ScimGroupMembership;
 import de.palsoftware.scim.server.ui.model.ScimUser;
@@ -8,6 +9,7 @@ import de.palsoftware.scim.server.ui.model.Workspace;
 import de.palsoftware.scim.server.ui.repository.ScimGroupRepository;
 import de.palsoftware.scim.server.ui.repository.ScimUserRepository;
 import de.palsoftware.scim.server.ui.repository.WorkspaceRepository;
+import de.palsoftware.scim.server.ui.service.ScimAdminService;
 import de.palsoftware.scim.server.ui.PostgresIntegrationTestSupport;
 import de.palsoftware.scim.server.ui.model.MgmtUser;
 import de.palsoftware.scim.server.ui.repository.MgmtUserRepository;
@@ -24,8 +26,10 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -58,6 +62,9 @@ class LazyLoadingIntegrationTest extends PostgresIntegrationTestSupport {
 
     @Autowired
     private MgmtUserRepository mgmtUserRepository;
+
+    @Autowired
+    private ScimAdminService scimAdminService;
 
 
     @Test
@@ -117,5 +124,49 @@ class LazyLoadingIntegrationTest extends PostgresIntegrationTestSupport {
                 .andExpect(jsonPath("$.items[0].displayName").value("Lazy Test Group"))
                 .andExpect(jsonPath("$.items[0].members").isArray())
                 .andExpect(jsonPath("$.items[0].members[0].value").value(user.getId().toString()));
+    }
+
+    @Test
+    void testUpdateGroupRetainingMembers_doesNotViolateUniqueMembershipConstraint() {
+        Workspace ws = new Workspace();
+        ws.setName("test-ws-sync-" + UUID.randomUUID());
+        ws.setCreatedByUsername("admin-user");
+        ws = workspaceRepository.saveAndFlush(ws);
+
+        ScimUser user1 = new ScimUser();
+        user1.setWorkspace(ws);
+        user1.setUserName("member.one." + UUID.randomUUID());
+        user1 = userRepository.saveAndFlush(user1);
+
+        ScimUser user2 = new ScimUser();
+        user2.setWorkspace(ws);
+        user2.setUserName("member.two." + UUID.randomUUID());
+        user2 = userRepository.saveAndFlush(user2);
+
+        ScimGroup created = scimAdminService.createGroup(
+                ws.getId(),
+                new GroupUpsertRequest(
+                        "Sync Group",
+                        "ext-sync-1",
+                        List.of(new GroupUpsertRequest.Member(user1.getId().toString(), "User", "Member One"))),
+                "admin-user",
+                true);
+
+        ScimGroup updated = scimAdminService.updateGroup(
+                ws.getId(),
+                created.getId(),
+                new GroupUpsertRequest(
+                        "Sync Group",
+                        "ext-sync-1",
+                        List.of(
+                                new GroupUpsertRequest.Member(user1.getId().toString(), "User", "Member One Updated"),
+                                new GroupUpsertRequest.Member(user2.getId().toString(), "User", "Member Two"))),
+                "admin-user",
+                true);
+
+        assertThat(updated.getMembers()).hasSize(2);
+        assertThat(updated.getMembers())
+                .extracting(ScimGroupMembership::getMemberValue)
+                .containsExactlyInAnyOrder(user1.getId(), user2.getId());
     }
 }

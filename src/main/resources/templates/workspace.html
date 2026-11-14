@@ -260,6 +260,30 @@
     </div>
 </div>
 
+<!-- Validator Session Credentials Modal -->
+<div class="modal-backdrop" id="validatorTokenModal">
+    <div class="modal">
+        <h3>Validator Session Credentials</h3>
+        <p class="auto-style-12" id="validatorTokenModalNote"></p>
+        <label for="validatorFallbackTokenName">Token Name</label>
+        <input type="text" id="validatorFallbackTokenName" readonly>
+        <label for="validatorFallbackBaseUrl">SCIM Base URL</label>
+        <div class="lookup-row auto-style-17">
+            <input type="text" id="validatorFallbackBaseUrl" class="auto-style-16" readonly spellcheck="false">
+            <button class="btn btn-copy btn-sm" type="button" data-action="copy-validator-base-url">Copy URL</button>
+        </div>
+        <div class="token-reveal">
+            <label for="validatorFallbackTokenValue" class="token-reveal-label">Access Token</label>
+            <textarea id="validatorFallbackTokenValue" class="token-reveal-value" rows="4" readonly spellcheck="false"></textarea>
+            <div class="note">⚠ Copy this token now. It will not be shown again.</div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" type="button" data-action="copy-validator-token">Copy Token</button>
+            <button class="btn auto-style-8" type="button" data-action="hide-validator-token-modal">Close</button>
+        </div>
+    </div>
+</div>
+
 <!-- User Modal -->
 <div class="modal-backdrop" id="userModal">
     <div class="modal">

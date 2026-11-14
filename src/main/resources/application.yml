@@ -65,6 +65,7 @@ management:
   endpoint:
     health:
       show-components: when_authorized
+      roles: ACTUATOR
   endpoints:
     web:
       exposure:

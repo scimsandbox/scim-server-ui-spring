@@ -1,5 +1,6 @@
 /*
- * Shared API client for the management UI, loaded by both index.html and workspace.html.
+ * Shared API client and UI/URL helpers for the management UI, loaded first by both
+ * index.html and workspace.html before dock-news.js, index.js, and workspace.js.
  * Session-expiry handling lives here so a 401 behaves identically on every page.
  */
 (function (global) {
@@ -7,6 +8,37 @@
     const CSRF_HEADER = document.querySelector('meta[name="_csrf_header"]')?.content || 'X-CSRF-TOKEN';
 
     let sessionExpired = false;
+
+    function esc(value) {
+        if (value == null) {
+            return '';
+        }
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function parseHttpUrl(rawUrl) {
+        if (!rawUrl) {
+            return null;
+        }
+        try {
+            const parsed = new URL(String(rawUrl).trim(), global.location.href);
+            if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                return parsed;
+            }
+        } catch {
+            // Invalid URL
+        }
+        return null;
+    }
+
+    function sanitizeHttpUrl(rawUrl) {
+        return parseHttpUrl(rawUrl)?.href || null;
+    }
 
     // The reload is asynchronous, so callers still receive the 401 and paint their own failure text
     // ("Failed to load users.", "Request failed") in the moment before the navigation commits. Cover
@@ -93,4 +125,7 @@
 
     global.apiFetch = apiFetch;
     global.signInAgain = signInAgain;
+    global.esc = esc;
+    global.parseHttpUrl = parseHttpUrl;
+    global.sanitizeHttpUrl = sanitizeHttpUrl;
 })(globalThis);

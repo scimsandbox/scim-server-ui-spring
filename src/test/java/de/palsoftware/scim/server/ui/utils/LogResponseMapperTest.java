@@ -149,4 +149,178 @@ class LogResponseMapperTest {
                 .containsEntry("id", null)
                 .containsEntry("createdAt", null);
     }
+
+    @Test
+    void redactSensitiveBodyPreservesGroupNamesAndDescriptionsStartingWithBasicOrBearer() {
+        String groupJson = """
+                {
+                  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                  "displayName": "Basic Users",
+                  "description": "Group for Basic Users.",
+                  "authenticationSchemes": [
+                    {
+                      "name": "OAuth Bearer Token",
+                      "description": "Authentication scheme using the OAuth Bearer Token Standard"
+                    },
+                    {
+                      "name": "HTTP Basic",
+                      "description": "Authentication scheme using the HTTP Basic Standard"
+                    }
+                  ],
+                  "title": "Bearer Authentication"
+                }
+                """;
+
+        assertThat(LogResponseMapper.redactSensitiveBody(groupJson))
+                .isSameAs(groupJson)
+                .contains("\"displayName\": \"Basic Users\"")
+                .contains("\"name\": \"OAuth Bearer Token\"")
+                .contains("HTTP Basic Standard")
+                .contains("Bearer Authentication")
+                .doesNotContain("[REDACTED]");
+
+        String mixedPlainText = "Group: Basic Users\n"
+                + "Scheme: OAuth Bearer Token\n"
+                + "Inline basic cred: Basic dXNlcjpwYXNz\n"
+                + "Inline bearer cred: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.sig_123.";
+
+        assertThat(LogResponseMapper.redactSensitiveBody(mixedPlainText))
+                .contains("Group: Basic Users\n")
+                .contains("Scheme: OAuth Bearer Token\n")
+                .contains("Inline basic cred: Basic [REDACTED]\n")
+                .contains("Inline bearer cred: Bearer [REDACTED].")
+                .doesNotContain("dXNlcjpwYXNz")
+                .doesNotContain("eyJhbGciOiJIUzI1NiJ9");
+    }
+
+    @Test
+    void redactSensitiveBodyRedactsMultiLineTruncatedStringsSchemaQualifiedKeysAndProxyAuthorization() {
+        String multiLineMalformed = "{\"password\":\"unclosedLine1Secret\n"
+                + "{\"access_token\":\"line2Secret\","
+                + "\"urn:ietf:params:scim:schemas:core:2.0:User:password\":\"schemaMalformedSecret\"}\n"
+                + "Proxy-Authorization: Bearer proxy-secret-token-456\r\n";
+
+        String redactedMalformed = LogResponseMapper.redactSensitiveBody(multiLineMalformed);
+        assertThat(redactedMalformed)
+                .doesNotContain("unclosedLine1Secret")
+                .doesNotContain("line2Secret")
+                .doesNotContain("schemaMalformedSecret")
+                .doesNotContain("proxy-secret-token-456")
+                .contains("Proxy-Authorization: [REDACTED]\r\n");
+
+        String schemaAndSubPathJson = """
+                {
+                  "urn:ietf:params:scim:schemas:core:2.0:User:password": "SchemaQualifiedPass!",
+                  "Operations": [
+                    {"op": "replace", "path": "password.value", "value": "DotValuePass!"},
+                    {"op": "replace", "path": "password[primary eq true]", "value": "FilteredPass!"}
+                  ]
+                }
+                """;
+
+        assertThat(LogResponseMapper.redactSensitiveBody(schemaAndSubPathJson))
+                .doesNotContain("SchemaQualifiedPass!")
+                .doesNotContain("DotValuePass!")
+                .doesNotContain("FilteredPass!");
+    }
+
+    @Test
+    void redactSensitiveBodyRedactsBase64UrlTokensWithLeadingOrTrailingNonAlphanumericChars() {
+        String repeatedSegment = "9fA7bC3d".repeat(10);
+        String dashStartWsToken = "-" + repeatedSegment + "E5gH-";
+        String underscoreStartWsToken = "_" + repeatedSegment + "E5gH_";
+        String jwtHeader = java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("{\"alg\":\"HS384\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String jwtPayload = java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("{\"sub\":\"user-123\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String jwtEndingInDash = jwtHeader + "." + jwtPayload + ".sigPartEndingWithDash-";
+        String shortRepeated = "AbCd1234".repeat(4);
+        String tokenEndingInPlus = shortRepeated + "+";
+        String tokenEndingInSlash = shortRepeated + "/";
+        String tokenEndingInTilde = shortRepeated + "~";
+        String tokenEndingInEquals = "AbCd1234".repeat(3) + "==";
+
+        String payload = "WsDash: Bearer " + dashStartWsToken + "\n"
+                + "WsUnderscore: Bearer " + underscoreStartWsToken + "\n"
+                + "JwtDash: Bearer " + jwtEndingInDash + "\n"
+                + "B64Plus: Bearer " + tokenEndingInPlus + "\n"
+                + "B64Slash: Bearer " + tokenEndingInSlash + "\n"
+                + "B68Tilde: Bearer " + tokenEndingInTilde + "\n"
+                + "B64Padded: Bearer " + tokenEndingInEquals + "\n"
+                + "BareDashes: Bearer ---\n"
+                + "BareUnderscores: Bearer _____\n"
+                + "Prose: OAuth Bearer Token\n";
+
+        String redacted = LogResponseMapper.redactSensitiveBody(payload);
+
+        assertThat(redacted)
+                .contains("WsDash: Bearer [REDACTED]\n")
+                .contains("WsUnderscore: Bearer [REDACTED]\n")
+                .contains("JwtDash: Bearer [REDACTED]\n")
+                .contains("B64Plus: Bearer [REDACTED]\n")
+                .contains("B64Slash: Bearer [REDACTED]\n")
+                .contains("B68Tilde: Bearer [REDACTED]\n")
+                .contains("B64Padded: Bearer [REDACTED]\n")
+                .contains("BareDashes: Bearer ---\n")
+                .contains("BareUnderscores: Bearer _____\n")
+                .contains("Prose: OAuth Bearer Token\n")
+                .doesNotContain(dashStartWsToken)
+                .doesNotContain(underscoreStartWsToken)
+                .doesNotContain(jwtEndingInDash)
+                .doesNotContain(tokenEndingInPlus)
+                .doesNotContain(tokenEndingInSlash)
+                .doesNotContain(tokenEndingInTilde)
+                .doesNotContain(tokenEndingInEquals);
+    }
+
+    @Test
+    void redactSensitiveBodyRedactsCredentialsAfterAdjacentSchemeWords() {
+        String plain = "DoubleBearer: Bearer Bearer secret-token-123\n"
+                + "BasicThenBearer: Basic Bearer _wsTokenStartingWithUnderscore987\n"
+                + "BearerThenBasic: Bearer Basic dXNlcjpwYXNz\n"
+                + "DoubleBasic: Basic Basic dXNlcjpwYXNz\n";
+
+        String redactedPlain = LogResponseMapper.redactSensitiveBody(plain);
+        assertThat(redactedPlain)
+                .contains("DoubleBearer: Bearer Bearer [REDACTED]\n")
+                .contains("BasicThenBearer: Basic Bearer [REDACTED]\n")
+                .contains("BearerThenBasic: Bearer Basic [REDACTED]\n")
+                .contains("DoubleBasic: Basic Basic [REDACTED]\n")
+                .doesNotContain("secret-token-123")
+                .doesNotContain("_wsTokenStartingWithUnderscore987")
+                .doesNotContain("dXNlcjpwYXNz");
+
+        String json = "{\"note\":\"Bearer Bearer -wsTokenStartingWithDash12345\"}";
+        assertThat(LogResponseMapper.redactSensitiveBody(json))
+                .contains("Bearer Bearer [REDACTED]")
+                .doesNotContain("-wsTokenStartingWithDash12345");
+    }
+
+    @Test
+    void redactSensitiveBodyRedactsMalformedAndTruncatedPatchPasswordOperationsRegardlessOfKeyOrder() {
+        String truncatedPatch = """
+                {
+                  "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                  "Operations": [
+                    {"path": "password", "op": "replace", "value": "SecretWithInterveningOp!"},
+                    {"op": "replace", "value": "SecretBeforePath!", "path": "urn:ietf:params:scim:schemas:core:2.0:User:password"},
+                    {"op": "replace", "value": "Basic Users", "path": "displayName"},
+                    {"op": "replace", "value": {"password": "NestedMalformedSecret!"}},
+                    {"op": "replace", "path": "password.value", "value": "TruncatedAtEofSecret""";
+
+        String redacted = LogResponseMapper.redactSensitiveBody(truncatedPatch);
+
+        assertThat(redacted)
+                .contains("\"Basic Users\"")
+                .doesNotContain("SecretWithInterveningOp!")
+                .doesNotContain("SecretBeforePath!")
+                .doesNotContain("NestedMalformedSecret!")
+                .doesNotContain("TruncatedAtEofSecret");
+
+        String truncatedUnclosedObjectValueFirst =
+                "{\"Operations\":[{\"op\":\"replace\",\"value\":\"UnclosedObjectSecret!\",\"path\":\"password[primary eq true]\"";
+        assertThat(LogResponseMapper.redactSensitiveBody(truncatedUnclosedObjectValueFirst))
+                .contains("\"value\":\"[REDACTED]\"")
+                .doesNotContain("UnclosedObjectSecret!");
+    }
 }

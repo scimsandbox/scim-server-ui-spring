@@ -1,4 +1,4 @@
-// apiFetch() and signInAgain() come from /js/api-client.js, loaded before this file.
+// apiFetch(), signInAgain(), esc(), parseHttpUrl(), and sanitizeHttpUrl() come from /js/api-client.js, loaded before this file.
 const API = '/api';
 
 function trimTrailingSlashes(value) {
@@ -8,21 +8,6 @@ function trimTrailingSlashes(value) {
         s = s.slice(0, -1);
     }
     return s;
-}
-
-function parseHttpUrl(rawUrl) {
-    if (!rawUrl) {
-        return null;
-    }
-    try {
-        const parsed = new URL(String(rawUrl).trim(), globalThis.location.href);
-        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-            return parsed;
-        }
-    } catch {
-        // Invalid URL
-    }
-    return null;
 }
 
 const SCIM_API_BASE_URL = trimTrailingSlashes(
@@ -559,17 +544,61 @@ async function clearLogs() {
     });
 }
 
+const VALIDATOR_FAST_RETRY_MS = 250;
+const VALIDATOR_SLOW_RETRY_MS = 1000;
+const VALIDATOR_FAST_PHASE_MS = 5000;
+const VALIDATOR_FALLBACK_REVEAL_MS = 4000;
+const VALIDATOR_MAX_HANDOFF_MS = 180000;
+let activeValidatorHandoffCleanup = null;
+
+function revealValidatorFallbackToken(tokenName, safeBaseUrl, rawToken, noteText) {
+    setText('validatorTokenModalNote', noteText);
+    const nameField = document.getElementById('validatorFallbackTokenName');
+    const urlField = document.getElementById('validatorFallbackBaseUrl');
+    const tokenField = document.getElementById('validatorFallbackTokenValue');
+    if (nameField) {
+        nameField.value = tokenName;
+    }
+    if (urlField) {
+        urlField.value = safeBaseUrl;
+    }
+    if (tokenField) {
+        tokenField.value = rawToken;
+    }
+    document.getElementById('validatorTokenModal')?.classList.add('active');
+    const anotherEditorOpen = document.getElementById('createTokenModal')?.classList.contains('active')
+        || document.getElementById('userModal')?.classList.contains('active')
+        || document.getElementById('groupModal')?.classList.contains('active');
+    if (!anotherEditorOpen && tokenField) {
+        tokenField.focus();
+        tokenField.select();
+    }
+}
+
+function hideValidatorTokenModal() {
+    document.getElementById('validatorTokenModal')?.classList.remove('active');
+    setText('validatorTokenModalNote', '');
+    const nameField = document.getElementById('validatorFallbackTokenName');
+    const urlField = document.getElementById('validatorFallbackBaseUrl');
+    const tokenField = document.getElementById('validatorFallbackTokenValue');
+    if (nameField) nameField.value = '';
+    if (urlField) urlField.value = '';
+    if (tokenField) tokenField.value = '';
+}
+
 function showCreateTokenModal() {
+    document.getElementById('tokenName').value = '';
+    document.getElementById('tokenDesc').value = '';
     document.getElementById('newTokenReveal').style.display = 'none';
     document.getElementById('createTokenBtn').style.display = '';
     document.getElementById('newTokenValue').value = '';
-    document.getElementById('tokenName').value = '';
-    document.getElementById('tokenDesc').value = '';
     document.getElementById('createTokenModal').classList.add('active');
     document.getElementById('tokenName').focus();
 }
+
 function hideCreateTokenModal() {
     document.getElementById('createTokenModal').classList.remove('active');
+    document.getElementById('newTokenValue').value = '';
     loadTokens();
     refreshWorkspaceStats();
 }
@@ -646,12 +675,17 @@ async function launchValidator(target = 'playground') {
     const safeBaseUrl = trimTrailingSlashes(parsedBaseUrl.href);
 
     await runBlockingAction('Generating test token & launching...', async () => {
+        if (activeValidatorHandoffCleanup) {
+            activeValidatorHandoffCleanup();
+        }
+
         const nowStr = new Date().toLocaleDateString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
         const tokenName = `Validator Session (${nowStr})`;
+        const tokenDesc = 'Auto-generated for Validator testing session';
         const res = await apiFetch(`${API}/workspaces/${wsId}/tokens`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ name: tokenName, description: 'Auto-generated for Validator testing session' })
+            body: JSON.stringify({ name: tokenName, description: tokenDesc })
         });
 
         if (!res.ok) {
@@ -673,42 +707,104 @@ async function launchValidator(target = 'playground') {
             return;
         }
 
-        // Never place bearer tokens in query strings or URL fragments (browser history / server logs).
+        await Promise.all([
+            loadTokens(),
+            refreshWorkspaceStats()
+        ]);
+
+        // Never place bearer tokens in query strings or URL fragments: fragments survive cross-origin
+        // HTTP 302 redirects to external OIDC identity providers and remain in browser history.
         launchUrl.search = '';
         launchUrl.hash = `url=${encodeURIComponent(safeBaseUrl)}`;
 
         const valWin = window.open(launchUrl.href, '_blank');
         if (!valWin) {
-            // The token was already minted, so surface it rather than reporting a launch that never happened.
-            await Promise.all([
-                loadTokens(),
-                refreshWorkspaceStats()
-            ]);
-            toast('Popup blocked - allow popups for this site. The generated token is in the token list.');
+            revealValidatorFallbackToken(
+                tokenName,
+                safeBaseUrl,
+                rawToken,
+                '⚠ Popup blocked. Copy the SCIM Base URL and one-time Access Token below and paste them into the SCIM Validator — the token will not be shown again.'
+            );
+            toast('Popup blocked — copy the generated credentials shown in the dialog.');
             return;
         }
 
-        // Prevent reverse tabnabbing while retaining window handle for origin-scoped postMessage.
-        try {
-            valWin.opener = null;
-        } catch {
-            // Cross-origin opener assignment ignored if already restricted
-        }
+        let acked = false;
+        let fallbackRevealed = false;
+        let retryTimer = null;
+        let fallbackTimer = null;
+        const startedAt = Date.now();
 
-        let attempts = 0;
-        const onAck = (event) => {
-            if (event.origin === VALIDATOR_ORIGIN && event.data && event.data.type === 'SCIM_VALIDATOR_ACK') {
-                clearInterval(interval);
-                window.removeEventListener('message', onAck);
+        const cleanup = () => {
+            if (retryTimer !== null) {
+                clearTimeout(retryTimer);
+                retryTimer = null;
+            }
+            if (fallbackTimer !== null) {
+                clearTimeout(fallbackTimer);
+                fallbackTimer = null;
+            }
+            window.removeEventListener('message', onAck);
+            window.removeEventListener('pagehide', cleanup);
+            if (activeValidatorHandoffCleanup === cleanup) {
+                activeValidatorHandoffCleanup = null;
             }
         };
-        window.addEventListener('message', onAck);
 
-        const interval = setInterval(() => {
-            attempts++;
-            if (attempts > 20 || valWin.closed) {
-                clearInterval(interval);
-                window.removeEventListener('message', onAck);
+        const revealFallbackOnce = (noteText, toastMsg) => {
+            if (acked || fallbackRevealed) {
+                return;
+            }
+            fallbackRevealed = true;
+            revealValidatorFallbackToken(tokenName, safeBaseUrl, rawToken, noteText);
+            toast(toastMsg);
+        };
+
+        function onAck(event) {
+            if (event.origin !== VALIDATOR_ORIGIN
+                || event.source !== valWin
+                || !event.data
+                || event.data.type !== 'SCIM_VALIDATOR_ACK') {
+                return;
+            }
+            acked = true;
+            cleanup();
+            if (fallbackRevealed && document.getElementById('validatorFallbackTokenValue')?.value === rawToken) {
+                hideValidatorTokenModal();
+            }
+            toast('Validator launched with workspace credentials!');
+        }
+
+        window.addEventListener('message', onAck);
+        window.addEventListener('pagehide', cleanup);
+        activeValidatorHandoffCleanup = cleanup;
+
+        fallbackTimer = setTimeout(() => {
+            revealFallbackOnce(
+                '⚠ Validator has not acknowledged credentials yet (for example while signing in or when server_manager_url is not configured). Automatic handoff will keep retrying, or you can copy the SCIM Base URL and one-time Access Token below.',
+                'Waiting for Validator — backup credentials shown in case automatic handoff cannot complete.'
+            );
+        }, VALIDATOR_FALLBACK_REVEAL_MS);
+
+        const sendInitAndSchedule = () => {
+            if (acked) {
+                return;
+            }
+            const elapsed = Date.now() - startedAt;
+            if (valWin.closed) {
+                cleanup();
+                revealFallbackOnce(
+                    '⚠ Cross-window connection closed before the Validator acknowledged credentials (for example due to sign-in isolation). Copy the SCIM Base URL and one-time Access Token below — the token will not be shown again.',
+                    'Copy the credentials shown in the dialog into the Validator.'
+                );
+                return;
+            }
+            if (elapsed >= VALIDATOR_MAX_HANDOFF_MS) {
+                cleanup();
+                revealFallbackOnce(
+                    '⚠ Timed out waiting for Validator acknowledgement. Copy the SCIM Base URL and one-time Access Token below — the token will not be shown again.',
+                    'Validator handoff timed out — copy the credentials shown in the dialog.'
+                );
                 return;
             }
             try {
@@ -718,15 +814,14 @@ async function launchValidator(target = 'playground') {
                     authToken: rawToken
                 }, VALIDATOR_ORIGIN);
             } catch {
-                // Target window not ready yet
+                // Target window is still navigating or cross-origin isolated
             }
-        }, 250);
+            const delay = elapsed < VALIDATOR_FAST_PHASE_MS ? VALIDATOR_FAST_RETRY_MS : VALIDATOR_SLOW_RETRY_MS;
+            retryTimer = setTimeout(sendInitAndSchedule, delay);
+        };
 
-        await Promise.all([
-            loadTokens(),
-            refreshWorkspaceStats()
-        ]);
-        toast('Validator launched with workspace credentials!');
+        sendInitAndSchedule();
+        toast('Opening Validator — transferring workspace credentials…');
     });
 }
 
@@ -797,18 +892,6 @@ function toast(msg) {
     const t = document.getElementById('toast');
     t.textContent = msg; t.classList.add('show');
     setTimeout(() => t.classList.remove('show'), 2500);
-}
-
-function esc(s) {
-    if (s == null) {
-        return '';
-    }
-    return String(s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
 }
 
 async function loadUsers(showToast = false) {
@@ -1465,17 +1548,21 @@ function toggleCard(bodyId, button) {
 
 function closeActiveModals() {
     const createTokenModal = document.getElementById('createTokenModal');
+    const validatorTokenModal = document.getElementById('validatorTokenModal');
     const userModal = document.getElementById('userModal');
     const groupModal = document.getElementById('groupModal');
     const detailsModal = document.getElementById('detailsModal');
     const logModal = document.getElementById('logModal');
     // The session-expired banner has no dismiss control, so Escape is the reflex it invites -- and
-    // these three dialogs are exactly the ones holding content a close would destroy: the editors'
-    // typed input, and the one-time token value, which is never shown again. Keep them open; the
+    // these four dialogs are exactly the ones holding content a close would destroy: the editors'
+    // typed input, and the one-time token values, which are never shown again. Keep them open; the
     // banner is up precisely so that work can be copied out first. The viewers below render from
     // state and close as usual.
     const holdsUnrecoverableContent = document.body.classList.contains('session-expired');
 
+    if (!holdsUnrecoverableContent && validatorTokenModal?.classList.contains('active')) {
+        hideValidatorTokenModal();
+    }
     if (!holdsUnrecoverableContent && createTokenModal.classList.contains('active')) {
         hideCreateTokenModal();
     }
@@ -1519,6 +1606,15 @@ document.addEventListener('click', (event) => {
             break;
         case 'launch-validator':
             launchValidator(actionEl.dataset.target || 'playground');
+            break;
+        case 'hide-validator-token-modal':
+            hideValidatorTokenModal();
+            break;
+        case 'copy-validator-base-url':
+            copyText(document.getElementById('validatorFallbackBaseUrl')?.value || '');
+            break;
+        case 'copy-validator-token':
+            copyText(document.getElementById('validatorFallbackTokenValue')?.value || '');
             break;
         case 'toggle-card':
             toggleCard(actionEl.dataset.cardId || '', actionEl);

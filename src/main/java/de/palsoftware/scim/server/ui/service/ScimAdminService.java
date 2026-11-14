@@ -31,8 +31,11 @@ import org.springframework.web.server.ResponseStatusException;
 import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -415,21 +418,80 @@ public class ScimAdminService {
             if (wsId == null) {
                 throw new IllegalStateException("Group requires a workspace id before resolving members");
             }
-            group.getMembers().clear();
+
             Set<UUID> seenMembers = new HashSet<>();
+            Set<UUID> userMemberIds = new LinkedHashSet<>();
+            Set<UUID> groupMemberIds = new LinkedHashSet<>();
+            Map<UUID, ParsedGroupMember> desiredByMemberId = new LinkedHashMap<>();
+
             for (GroupUpsertRequest.Member member : request.members()) {
-                ScimGroupMembership membership = buildMembership(group, wsId, member, seenMembers);
-                if (membership != null) {
+                ParsedGroupMember parsed = parseGroupMember(group, member, seenMembers);
+                if (parsed == null) {
+                    continue;
+                }
+                desiredByMemberId.put(parsed.memberUuid(), parsed);
+                if (MEMBER_TYPE_GROUP.equals(parsed.memberType())) {
+                    groupMemberIds.add(parsed.memberUuid());
+                } else {
+                    userMemberIds.add(parsed.memberUuid());
+                }
+            }
+
+            Set<UUID> existingUserIds = userMemberIds.isEmpty()
+                    ? Set.of()
+                    : userRepository.findIdsByWorkspaceIdAndIdIn(wsId, userMemberIds);
+            Set<UUID> existingGroupIds = groupMemberIds.isEmpty()
+                    ? Set.of()
+                    : groupRepository.findIdsByWorkspaceIdAndIdIn(wsId, groupMemberIds);
+
+            for (ParsedGroupMember parsed : desiredByMemberId.values()) {
+                if (MEMBER_TYPE_GROUP.equals(parsed.memberType())) {
+                    if (!existingGroupIds.contains(parsed.memberUuid())) {
+                        throw new ResponseStatusException(
+                                HttpStatus.BAD_REQUEST,
+                                "Member group does not exist in workspace: " + parsed.memberUuid());
+                    }
+                } else if (!existingUserIds.contains(parsed.memberUuid())) {
+                    throw new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST,
+                            "Member user does not exist in workspace: " + parsed.memberUuid());
+                }
+            }
+
+            // Sync in place so Hibernate updates retained rows instead of inserting before orphan-delete
+            // (which would violate uk_scim_group_memberships_workspace_group_member).
+            Set<UUID> retainedIds = new HashSet<>();
+            var it = group.getMembers().iterator();
+            while (it.hasNext()) {
+                ScimGroupMembership existing = it.next();
+                ParsedGroupMember desired = desiredByMemberId.get(existing.getMemberValue());
+                if (desired == null) {
+                    it.remove();
+                } else {
+                    existing.setWorkspaceId(wsId);
+                    existing.setMemberType(desired.memberType());
+                    existing.setDisplay(desired.display());
+                    retainedIds.add(existing.getMemberValue());
+                }
+            }
+
+            for (ParsedGroupMember parsed : desiredByMemberId.values()) {
+                if (!retainedIds.contains(parsed.memberUuid())) {
+                    ScimGroupMembership membership = new ScimGroupMembership();
+                    membership.setGroup(group);
+                    membership.setWorkspaceId(wsId);
+                    membership.setMemberValue(parsed.memberUuid());
+                    membership.setMemberType(parsed.memberType());
+                    membership.setDisplay(parsed.display());
                     group.getMembers().add(membership);
                 }
             }
         }
     }
 
-    private ScimGroupMembership buildMembership(ScimGroup group,
-                                                UUID workspaceId,
-                                                GroupUpsertRequest.Member member,
-                                                Set<UUID> seenMembers) {
+    private ParsedGroupMember parseGroupMember(ScimGroup group,
+                                               GroupUpsertRequest.Member member,
+                                               Set<UUID> seenMembers) {
         if (member == null || member.value() == null || member.value().isBlank()) {
             return null;
         }
@@ -443,6 +505,10 @@ public class ScimAdminService {
             return null;
         }
 
+        if (group.getId() != null && group.getId().equals(memberUuid)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Group cannot include itself as a member");
+        }
+
         String rawType = normalizeOptional(member.type());
         String canonicalType;
         if (rawType == null || MEMBER_TYPE_USER.equalsIgnoreCase(rawType)) {
@@ -453,28 +519,10 @@ public class ScimAdminService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported member type: " + rawType);
         }
 
-        if (MEMBER_TYPE_GROUP.equals(canonicalType)) {
-            if (group.getId() != null && group.getId().equals(memberUuid)) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Group cannot include itself as a member");
-            }
-            if (!groupRepository.existsByIdAndWorkspaceId(memberUuid, workspaceId)) {
-                throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST,
-                        "Member group does not exist in workspace: " + memberUuid);
-            }
-        } else if (!userRepository.existsByIdAndWorkspaceId(memberUuid, workspaceId)) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Member user does not exist in workspace: " + memberUuid);
-        }
+        return new ParsedGroupMember(memberUuid, canonicalType, normalizeOptional(member.display()));
+    }
 
-        ScimGroupMembership membership = new ScimGroupMembership();
-        membership.setGroup(group);
-        membership.setWorkspaceId(workspaceId);
-        membership.setMemberValue(memberUuid);
-        membership.setMemberType(canonicalType);
-        membership.setDisplay(normalizeOptional(member.display()));
-        return membership;
+    private record ParsedGroupMember(UUID memberUuid, String memberType, String display) {
     }
 
     private String normalizeRequired(String field, String value) {

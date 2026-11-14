@@ -6,9 +6,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -86,6 +91,86 @@ class ActuatorApiKeyAuthFilterTest {
         filter.doFilter(bearerReq, bearerRes, chain2);
         verify(chain2).doFilter(bearerReq, bearerRes);
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+
+        SecurityContextHolder.clearContext();
+
+        MockHttpServletRequest altHeaderReq = new MockHttpServletRequest("GET", "/actuator/prometheus");
+        altHeaderReq.addHeader(ActuatorApiKeyAuthFilter.ALT_API_KEY_HEADER, "super-secret-key");
+        MockHttpServletResponse altHeaderRes = new MockHttpServletResponse();
+        FilterChain chain3 = mock(FilterChain.class);
+
+        filter.doFilter(altHeaderReq, altHeaderRes, chain3);
+        verify(chain3).doFilter(altHeaderReq, altHeaderRes);
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+    }
+
+    @Test
+    void authorizedActuatorRequestReplacesContextInsteadOfMutatingExistingContextInPlace() throws Exception {
+        ActuatorApiKeyAuthFilter filter = new ActuatorApiKeyAuthFilter("super-secret-key", 9090, 8080);
+
+        Authentication existingUserAuth = UsernamePasswordAuthenticationToken.authenticated(
+                "user@example.test",
+                null,
+                List.of(new SimpleGrantedAuthority("ROLE_USER")));
+        SecurityContext existingSessionContext = SecurityContextHolder.createEmptyContext();
+        existingSessionContext.setAuthentication(existingUserAuth);
+        SecurityContextHolder.setContext(existingSessionContext);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/actuator/prometheus");
+        request.addHeader(ActuatorApiKeyAuthFilter.API_KEY_HEADER, "super-secret-key");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        assertThat(SecurityContextHolder.getContext()).isNotSameAs(existingSessionContext);
+        assertThat(SecurityContextHolder.getContext().getAuthentication().getName()).isEqualTo("actuator");
+        assertThat(existingSessionContext.getAuthentication()).isSameAs(existingUserAuth);
+        assertThat(existingSessionContext.getAuthentication().getName()).isEqualTo("user@example.test");
+    }
+
+    @Test
+    void normalizedPathsPreventDoubleSlashAndMatrixParameterBypass() throws Exception {
+        ActuatorApiKeyAuthFilter filter = new ActuatorApiKeyAuthFilter("super-secret-key", 9090, 8080);
+
+        for (String variant : List.of("//actuator//prometheus", "/actuator;v=1/prometheus/")) {
+            MockHttpServletRequest unauthReq = new MockHttpServletRequest("GET", variant);
+            MockHttpServletResponse unauthRes = new MockHttpServletResponse();
+            FilterChain unauthChain = mock(FilterChain.class);
+
+            filter.doFilter(unauthReq, unauthRes, unauthChain);
+            assertThat(unauthRes.getStatus()).as("path %s must not bypass filter", variant).isEqualTo(401);
+            verify(unauthChain, never()).doFilter(unauthReq, unauthRes);
+        }
+    }
+
+    @Test
+    void dotSegmentsAndEncodedSlashesOnActuatorPathsAreRejectedWith400() throws Exception {
+        ActuatorApiKeyAuthFilter filter = new ActuatorApiKeyAuthFilter("super-secret-key", 9090, 8080);
+
+        List<String> traversalPaths = List.of(
+                "/actuator/health/../prometheus",
+                "/actuator/./prometheus",
+                "/actuator/..;/prometheus",
+                "/actuator/%2e%2e/prometheus",
+                "/actuator/%2fprometheus",
+                "/actuator/%5cprometheus",
+                "/actuator\\prometheus",
+                "/public/../actuator/prometheus");
+
+        for (String path : traversalPaths) {
+            MockHttpServletRequest req = new MockHttpServletRequest("GET", path);
+            req.addHeader(ActuatorApiKeyAuthFilter.API_KEY_HEADER, "super-secret-key");
+            MockHttpServletResponse res = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(req, res, chain);
+
+            assertThat(res.getStatus()).as("traversal path %s must return 400", path).isEqualTo(400);
+            verify(chain, never()).doFilter(req, res);
+            assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        }
     }
 
     @Test

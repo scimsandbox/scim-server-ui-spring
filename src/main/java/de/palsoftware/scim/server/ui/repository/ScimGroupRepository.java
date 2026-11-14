@@ -9,15 +9,18 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public interface ScimGroupRepository extends JpaRepository<ScimGroup, UUID>, JpaSpecificationExecutor<ScimGroup> {
 
     Optional<ScimGroup> findByIdAndWorkspaceId(UUID id, UUID workspaceId);
 
-    boolean existsByIdAndWorkspaceId(UUID id, UUID workspaceId);
+    @Query("SELECT g.id FROM ScimGroup g WHERE g.workspace.id = :workspaceId AND g.id IN :ids")
+    Set<UUID> findIdsByWorkspaceIdAndIdIn(@Param("workspaceId") UUID workspaceId, @Param("ids") Collection<UUID> ids);
 
     Optional<ScimGroup> findByDisplayNameAndWorkspaceId(String displayName, UUID workspaceId);
 
