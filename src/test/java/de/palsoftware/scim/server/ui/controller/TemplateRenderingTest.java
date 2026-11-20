@@ -64,9 +64,6 @@ class TemplateRenderingTest extends PostgresIntegrationTestSupport {
         assertThat(html.indexOf("/js/api-client.js"))
                 .as("api-client.js must be loaded before workspace.js, which depends on apiFetch")
                 .isLessThan(html.indexOf("/js/workspace.js"));
-        assertThat(html.indexOf("/js/api-client.js"))
-                .as("api-client.js must be loaded before dock-news.js, which depends on sanitizeHttpUrl")
-                .isLessThan(html.indexOf("/js/dock-news.js"));
         assertThat(html)
                 .as("Validator fallback credentials must use a dedicated modal separate from manual token creation")
                 .contains("id=\"createTokenModal\"")
@@ -97,14 +94,19 @@ class TemplateRenderingTest extends PostgresIntegrationTestSupport {
         assertThat(apiClientJs)
                 .contains("global.esc = esc")
                 .contains("global.parseHttpUrl = parseHttpUrl")
-                .contains("global.sanitizeHttpUrl = sanitizeHttpUrl");
+                .doesNotContain("sanitizeHttpUrl");
 
-        for (String script : java.util.List.of(indexJs, workspaceJs, dockNewsJs)) {
+        for (String script : java.util.List.of(indexJs, workspaceJs)) {
             assertThat(script)
                     .doesNotContain("function esc(")
-                    .doesNotContain("function parseHttpUrl(")
-                    .doesNotContain("function sanitizeHttpUrl(");
+                    .doesNotContain("function parseHttpUrl(");
         }
+
+        assertThat(dockNewsJs)
+                .as("dock-news.js must remain self-contained so it can be synced verbatim to scim-validator-ui-spring")
+                .contains("Keep this file identical in scim-server-ui-spring and scim-validator-ui-spring.")
+                .contains("function sanitizeHttpUrl(")
+                .doesNotContain("api-client.js");
 
         assertThat(workspaceJs)
                 .doesNotContain("valWin.opener = null")

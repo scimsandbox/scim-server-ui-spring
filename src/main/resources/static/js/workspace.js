@@ -1,4 +1,4 @@
-// apiFetch(), signInAgain(), esc(), parseHttpUrl(), and sanitizeHttpUrl() come from /js/api-client.js, loaded before this file.
+// apiFetch(), signInAgain(), esc(), and parseHttpUrl() come from /js/api-client.js, loaded before this file.
 const API = '/api';
 
 function trimTrailingSlashes(value) {

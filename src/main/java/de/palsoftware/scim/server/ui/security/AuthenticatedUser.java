@@ -6,7 +6,6 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 
 import java.util.Locale;
-import java.util.Map;
 
 public final class AuthenticatedUser {
 
@@ -62,21 +61,11 @@ public final class AuthenticatedUser {
         if (oidcUser == null) {
             return false;
         }
-        Boolean directVerified = oidcUser.getEmailVerified();
-        if (directVerified != null) {
-            return directVerified;
+        try {
+            return Boolean.TRUE.equals(oidcUser.getEmailVerified());
+        } catch (IllegalArgumentException ex) {
+            return false;
         }
-        Map<String, Object> claims = oidcUser.getClaims();
-        if (claims != null) {
-            Object rawVerified = claims.get("email_verified");
-            if (rawVerified instanceof Boolean verified) {
-                return verified;
-            }
-            if (rawVerified instanceof String verifiedStr) {
-                return "true".equalsIgnoreCase(verifiedStr.trim());
-            }
-        }
-        return false;
     }
 
     public static String resolveEmail(OidcUser oidcUser) {

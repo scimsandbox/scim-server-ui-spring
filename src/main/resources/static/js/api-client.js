@@ -1,6 +1,6 @@
 /*
  * Shared API client and UI/URL helpers for the management UI, loaded first by both
- * index.html and workspace.html before dock-news.js, index.js, and workspace.js.
+ * index.html and workspace.html before index.js and workspace.js.
  * Session-expiry handling lives here so a 401 behaves identically on every page.
  */
 (function (global) {
@@ -34,10 +34,6 @@
             // Invalid URL
         }
         return null;
-    }
-
-    function sanitizeHttpUrl(rawUrl) {
-        return parseHttpUrl(rawUrl)?.href || null;
     }
 
     // The reload is asynchronous, so callers still receive the 401 and paint their own failure text
@@ -127,5 +123,4 @@
     global.signInAgain = signInAgain;
     global.esc = esc;
     global.parseHttpUrl = parseHttpUrl;
-    global.sanitizeHttpUrl = sanitizeHttpUrl;
 })(globalThis);

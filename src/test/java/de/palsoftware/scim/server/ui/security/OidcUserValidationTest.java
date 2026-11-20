@@ -97,6 +97,36 @@ class OidcUserValidationTest {
                 .contains("ROLE_USER", "ROLE_ADMIN");
     }
 
+    @Test
+    void mapAndProvisionOidcUser_handlesStringAndNonBooleanEmailVerifiedClaimsCleanly() {
+        OidcUser stringTrue = buildOidcUser(Map.of(
+                "sub", "auth0|789",
+                "email", "string.verified@example.com",
+                "email_verified", "true"));
+        OidcUser mapped = securityConfig.mapAndProvisionOidcUser(stringTrue);
+        assertThat(mapped).isNotNull();
+        verify(mgmtUserService).provisionUser("string.verified@example.com");
+
+        OidcUser stringFalse = buildOidcUser(Map.of(
+                "sub", "auth0|790",
+                "email", "string.unverified@example.com",
+                "email_verified", "false"));
+        assertThatThrownBy(() -> securityConfig.mapAndProvisionOidcUser(stringFalse))
+                .isInstanceOf(OAuth2AuthenticationException.class);
+
+        // Non-Boolean/non-String claim (e.g. integer 1) causes ClaimAccessor.getClaimAsBoolean to throw
+        // IllegalArgumentException; mapAndProvisionOidcUser must fail closed with OAuth2AuthenticationException
+        // instead of leaking an unhandled 500 error.
+        OidcUser nonBooleanClaim = buildOidcUser(Map.of(
+                "sub", "auth0|791",
+                "email", "malformed.claim@example.com",
+                "email_verified", 1));
+        assertThatThrownBy(() -> securityConfig.mapAndProvisionOidcUser(nonBooleanClaim))
+                .isInstanceOf(OAuth2AuthenticationException.class)
+                .satisfies(ex -> assertThat(((OAuth2AuthenticationException) ex).getError().getErrorCode())
+                        .isEqualTo("invalid_token"));
+    }
+
     private static OidcUser buildOidcUser(Map<String, Object> claims) {
         Map<String, Object> tokenClaims = new HashMap<>(claims);
         Instant now = Instant.now();

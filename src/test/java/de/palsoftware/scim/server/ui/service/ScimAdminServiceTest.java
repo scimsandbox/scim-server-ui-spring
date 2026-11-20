@@ -461,7 +461,7 @@ class ScimAdminServiceTest {
         ScimGroup saved = service.createGroup(workspaceId, request, "admin", true);
 
         assertThat(saved.getMembers()).hasSize(4);
-        assertThat(saved.getMembers().get(0).getWorkspaceId()).isEqualTo(workspaceId);
+        assertThat(saved.getMembers().get(0).getGroup()).isSameAs(saved);
         assertThat(saved.getMembers().get(0).getMemberType()).isEqualTo("User");
         assertThat(saved.getMembers().get(2).getMemberType()).isEqualTo("Group");
         verify(userRepository, times(1)).findIdsByWorkspaceIdAndIdIn(eq(workspaceId), any());

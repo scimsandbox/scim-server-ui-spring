@@ -9,7 +9,6 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -54,12 +53,21 @@ class AuthenticatedUserTest {
     void email_oidcUser_missingEmailVerifiedClaim_throws() {
         OidcUser oidcUser = mock(OidcUser.class);
         when(oidcUser.getEmailVerified()).thenReturn(null);
-        when(oidcUser.getClaims()).thenReturn(Map.of("email", "email@test.com"));
         Authentication auth = mockAuthWithPrincipal(oidcUser);
 
         assertThatThrownBy(() -> AuthenticatedUser.email(auth))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("verified email");
+    }
+
+    @Test
+    void isEmailVerified_malformedNonBooleanClaimThrowingIllegalArgumentException_returnsFalse() {
+        OidcUser oidcUser = mock(OidcUser.class);
+        when(oidcUser.getEmailVerified()).thenThrow(
+                new IllegalArgumentException("Unable to convert claim 'email_verified' of type 'class java.lang.Integer' to Boolean."));
+
+        assertThat(AuthenticatedUser.isEmailVerified(oidcUser)).isFalse();
+        assertThat(AuthenticatedUser.resolveEmail(oidcUser)).isNull();
     }
 
     @Test

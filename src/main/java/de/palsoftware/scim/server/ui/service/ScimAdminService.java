@@ -169,7 +169,7 @@ public class ScimAdminService {
         ScimGroup group = new ScimGroup();
         group.setWorkspace(ws);
         group.setDisplayName(displayName);
-        applyGroupFields(group, request, true);
+        applyGroupFields(workspaceId, group, request, true);
 
         ScimGroup saved = groupRepository.save(group);
         initializeLazyGroupCollections(saved);
@@ -190,7 +190,7 @@ public class ScimAdminService {
             group.setDisplayName(displayName);
         }
 
-        applyGroupFields(group, request, false);
+        applyGroupFields(workspaceId, group, request, false);
 
         ScimGroup saved = groupRepository.save(group);
         initializeLazyGroupCollections(saved);
@@ -409,16 +409,11 @@ public class ScimAdminService {
         }
     }
 
-    private void applyGroupFields(ScimGroup group, GroupUpsertRequest request, boolean isCreate) {
+    private void applyGroupFields(UUID workspaceId, ScimGroup group, GroupUpsertRequest request, boolean isCreate) {
         if (isCreate || request.externalId() != null) {
             group.setExternalId(normalizeOptional(request.externalId()));
         }
         if (request.members() != null) {
-            UUID wsId = group.getWorkspace() != null ? group.getWorkspace().getId() : null;
-            if (wsId == null) {
-                throw new IllegalStateException("Group requires a workspace id before resolving members");
-            }
-
             Set<UUID> seenMembers = new HashSet<>();
             Set<UUID> userMemberIds = new LinkedHashSet<>();
             Set<UUID> groupMemberIds = new LinkedHashSet<>();
@@ -439,10 +434,10 @@ public class ScimAdminService {
 
             Set<UUID> existingUserIds = userMemberIds.isEmpty()
                     ? Set.of()
-                    : userRepository.findIdsByWorkspaceIdAndIdIn(wsId, userMemberIds);
+                    : userRepository.findIdsByWorkspaceIdAndIdIn(workspaceId, userMemberIds);
             Set<UUID> existingGroupIds = groupMemberIds.isEmpty()
                     ? Set.of()
-                    : groupRepository.findIdsByWorkspaceIdAndIdIn(wsId, groupMemberIds);
+                    : groupRepository.findIdsByWorkspaceIdAndIdIn(workspaceId, groupMemberIds);
 
             for (ParsedGroupMember parsed : desiredByMemberId.values()) {
                 if (MEMBER_TYPE_GROUP.equals(parsed.memberType())) {
@@ -460,6 +455,7 @@ public class ScimAdminService {
 
             // Sync in place so Hibernate updates retained rows instead of inserting before orphan-delete
             // (which would violate uk_scim_group_memberships_workspace_group_member).
+            // workspaceId is populated and validated on persist/update by ScimGroupMembership.syncWorkspaceId().
             Set<UUID> retainedIds = new HashSet<>();
             var it = group.getMembers().iterator();
             while (it.hasNext()) {
@@ -468,7 +464,6 @@ public class ScimAdminService {
                 if (desired == null) {
                     it.remove();
                 } else {
-                    existing.setWorkspaceId(wsId);
                     existing.setMemberType(desired.memberType());
                     existing.setDisplay(desired.display());
                     retainedIds.add(existing.getMemberValue());
@@ -479,7 +474,6 @@ public class ScimAdminService {
                 if (!retainedIds.contains(parsed.memberUuid())) {
                     ScimGroupMembership membership = new ScimGroupMembership();
                     membership.setGroup(group);
-                    membership.setWorkspaceId(wsId);
                     membership.setMemberValue(parsed.memberUuid());
                     membership.setMemberType(parsed.memberType());
                     membership.setDisplay(parsed.display());

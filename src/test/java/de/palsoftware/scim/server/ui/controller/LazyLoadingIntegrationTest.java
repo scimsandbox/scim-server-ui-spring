@@ -168,5 +168,8 @@ class LazyLoadingIntegrationTest extends PostgresIntegrationTestSupport {
         assertThat(updated.getMembers())
                 .extracting(ScimGroupMembership::getMemberValue)
                 .containsExactlyInAnyOrder(user1.getId(), user2.getId());
+        assertThat(updated.getMembers())
+                .extracting(ScimGroupMembership::getWorkspaceId)
+                .containsOnly(ws.getId());
     }
 }
