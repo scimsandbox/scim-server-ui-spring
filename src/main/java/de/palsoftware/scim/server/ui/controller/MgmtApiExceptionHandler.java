@@ -1,11 +1,14 @@
 package de.palsoftware.scim.server.ui.controller;
 
+import de.palsoftware.scim.server.ui.security.InvalidAuthenticatedPrincipalException;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -32,6 +35,19 @@ public class MgmtApiExceptionHandler {
                     statusCode.value(), request.getRequestURI(), ex);
         }
         return buildResponse(statusCode, message, request.getRequestURI());
+    }
+
+    @ExceptionHandler(InvalidAuthenticatedPrincipalException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidPrincipal(InvalidAuthenticatedPrincipalException ex,
+            HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session != null) {
+            session.invalidate();
+        }
+        SecurityContextHolder.clearContext();
+        log.warn("Rejected unverified or stale authenticated principal for path {}: {}",
+                request.getRequestURI(), ex.getMessage());
+        return buildResponse(HttpStatus.UNAUTHORIZED, "Authentication required", request.getRequestURI());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

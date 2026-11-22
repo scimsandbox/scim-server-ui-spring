@@ -1,6 +1,7 @@
 package de.palsoftware.scim.server.ui.security;
 
 import de.palsoftware.scim.server.ui.service.MgmtUserService;
+import de.palsoftware.scim.server.ui.utils.HttpUrlUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -27,11 +28,13 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.AndRequestMatcher;
 import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestHeaderRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 
@@ -47,20 +50,44 @@ import java.util.Set;
 public class SecurityConfig {
 
     private static final String CSRF_COOKIE_NAME = "SCIM_SERVER_MGMT_XSRF";
+    private static final String INVALID_TOKEN_ERROR = "invalid_token";
 
     private final String adminRole;
     private final String userRole;
     private final String roleClaim;
+    private final String actuatorApiKey;
+    private final int managementPort;
+    private final int serverPort;
+    private final String websiteUrl;
     private final MgmtUserService mgmtUserService;
 
     public SecurityConfig(@Value("${app.security.oidc.admin-role}") String adminRole,
                           @Value("${app.security.oidc.user-role}") String userRole,
                           @Value("${app.security.oidc.role-claim}") String roleClaim,
+                          @Value("${app.security.actuator.api-key:}") String actuatorApiKey,
+                          @Value("${management.server.port:-1}") String managementPort,
+                          @Value("${server.port:8080}") String serverPort,
+                          @Value("${app.website.url:}") String websiteUrl,
                           @Lazy MgmtUserService mgmtUserService) {
         this.adminRole = adminRole;
         this.userRole = userRole;
         this.roleClaim = roleClaim;
+        this.actuatorApiKey = actuatorApiKey;
+        this.managementPort = parsePort(managementPort, -1);
+        this.serverPort = parsePort(serverPort, 8080);
+        this.websiteUrl = websiteUrl;
         this.mgmtUserService = mgmtUserService;
+    }
+
+    private static int parsePort(String rawPort, int fallback) {
+        if (rawPort == null || rawPort.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(rawPort.trim());
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
     }
 
     @Bean
@@ -68,6 +95,9 @@ public class SecurityConfig {
                                                    LogoutSuccessHandler oidcLogoutSuccessHandler,
                                                    ClientRegistrationRepository clientRegistrationRepository) throws Exception {
         RequestMatcher apiMatcher = PathPatternRequestMatcher.withDefaults().matcher("/api/**");
+        RequestMatcher actuatorMatcher = new OrRequestMatcher(
+                PathPatternRequestMatcher.withDefaults().matcher("/actuator"),
+                PathPatternRequestMatcher.withDefaults().matcher("/actuator/**"));
 
         // Only page navigations may become the post-login landing page. ExceptionTranslationFilter calls
         // saveRequest before commencing the entry point, so without the /api/** exclusion a 401'd XHR
@@ -80,13 +110,26 @@ public class SecurityConfig {
         requestCache.setRequestMatcher(new AndRequestMatcher(
                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.GET, "/**"),
                 new NegatedRequestMatcher(apiMatcher),
+                new NegatedRequestMatcher(actuatorMatcher),
                 new NegatedRequestMatcher(PathPatternRequestMatcher.withDefaults().matcher("/favicon.*")),
                 new NegatedRequestMatcher(new RequestHeaderRequestMatcher("X-Requested-With", "XMLHttpRequest"))));
 
-        http.authorizeHttpRequests(authorize -> authorize
-                .requestMatchers("/actuator/**").permitAll()
+        String cspDirectives = buildContentSecurityPolicy(websiteUrl);
+
+        http.addFilterBefore(
+                new ActuatorApiKeyAuthFilter(actuatorApiKey, managementPort, serverPort),
+                OAuth2AuthorizationRequestRedirectFilter.class)
+            .addFilterBefore(
+                new VerifiedPrincipalSessionFilter(),
+                OAuth2AuthorizationRequestRedirectFilter.class)
+            .authorizeHttpRequests(authorize -> authorize
+                .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                .requestMatchers("/actuator", "/actuator/**").hasRole("ACTUATOR")
                 .requestMatchers("/css/**", "/js/**", "/images/**", "/fonts/**", "/favicon.*", "/error").permitAll()
                 .anyRequest().authenticated())
+            .headers(headers -> headers
+                .contentSecurityPolicy(csp -> csp.policyDirectives(cspDirectives))
+                .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
             .oauth2Login(oauth2 -> oauth2
                 .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService())))
             .logout(logout -> logout
@@ -100,6 +143,10 @@ public class SecurityConfig {
                 .defaultAuthenticationEntryPointFor(
                     new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
                     apiMatcher
+                )
+                .defaultAuthenticationEntryPointFor(
+                    new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                    actuatorMatcher
                 )
                 .defaultAuthenticationEntryPointFor(
                     new LoginUrlAuthenticationEntryPoint(oidcLoginUrl(clientRegistrationRepository)),
@@ -146,20 +193,40 @@ public class SecurityConfig {
             @Override
             public OidcUser loadUser(OidcUserRequest userRequest) throws OAuth2AuthenticationException {
                 OidcUser oidcUser = delegate.loadUser(userRequest);
-                Set<GrantedAuthority> mappedAuthorities = new HashSet<>(oidcUser.getAuthorities());
-
-                addMappedAuthorities(extractClaimValues(oidcUser.getClaim(roleClaim)), mappedAuthorities);
-
-                String email = AuthenticatedUser.resolveEmail(oidcUser);
-                if (email == null) {
-                    throw new OAuth2AuthenticationException(
-                            new OAuth2Error("invalid_token", "An email claim is required for management access", null));
-                }
-                mgmtUserService.provisionUser(email);
-
-                return new DefaultOidcUser(mappedAuthorities, oidcUser.getIdToken(), oidcUser.getUserInfo());
+                return mapAndProvisionOidcUser(oidcUser);
             }
         };
+    }
+
+    OidcUser mapAndProvisionOidcUser(OidcUser oidcUser) {
+        String email = AuthenticatedUser.resolveEmail(oidcUser);
+        if (email == null) {
+            throw new OAuth2AuthenticationException(
+                    new OAuth2Error(INVALID_TOKEN_ERROR,
+                            "A verified email claim (email_verified=true) is required for management access",
+                            null));
+        }
+
+        Set<GrantedAuthority> mappedAuthorities = new HashSet<>(oidcUser.getAuthorities());
+        addMappedAuthorities(extractClaimValues(oidcUser.getClaim(roleClaim)), mappedAuthorities);
+
+        mgmtUserService.provisionUser(email);
+
+        return new DefaultOidcUser(mappedAuthorities, oidcUser.getIdToken(), oidcUser.getUserInfo());
+    }
+
+    static String buildContentSecurityPolicy(String websiteUrl) {
+        String websiteOrigin = HttpUrlUtils.extractHttpOrigin(websiteUrl);
+        String connectSrc = websiteOrigin != null ? "'self' " + websiteOrigin : "'self'";
+        return "default-src 'self'; "
+                + "script-src 'self'; "
+                + "style-src 'self' 'unsafe-inline'; "
+                + "img-src 'self' data:; "
+                + "font-src 'self'; "
+                + "connect-src " + connectSrc + "; "
+                + "object-src 'none'; "
+                + "base-uri 'self'; "
+                + "frame-ancestors 'none'";
     }
 
     @SuppressWarnings("java:S3330")

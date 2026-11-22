@@ -11,6 +11,7 @@
     <link rel="stylesheet" th:href="@{/css/workspace.css}" href="/css/workspace.css">
     <script th:src="@{/js/api-client.js}" src="/js/api-client.js"></script>
     <script th:src="@{/js/dock-news.js}" src="/js/dock-news.js" defer></script>
+    <script th:src="@{/js/index.js}" src="/js/index.js" defer></script>
     <style>
         /* Page-local only. auto-style-* names are reused with different meanings in workspace.html,
            so they must not move into the shared stylesheet. */
@@ -43,7 +44,7 @@
     <div class="card">
         <div class="card-header">
             <h2>Workspaces</h2>
-            <button class="btn btn-primary" onclick="showCreateModal()">+ New Workspace</button>
+            <button class="btn btn-primary" type="button" data-action="show-create-modal">+ New Workspace</button>
         </div>
         <div style="margin: 0 1.25rem 1rem 1.25rem; color: #dc2626; background: rgba(220, 38, 38, 0.1); padding: 0.75rem; border-radius: var(--radius); text-align: center; border: 1px solid rgba(220, 38, 38, 0.2); font-size: 0.85rem; font-weight: 500;">
             Inactive workspaces are deleted automatically after 3 months.
@@ -63,8 +64,8 @@
         <label for="wsDesc">Description (optional)</label>
         <textarea id="wsDesc" rows="2" placeholder="A short description"></textarea>
         <div class="modal-actions">
-            <button class="btn auto-style-3"  onclick="hideCreateModal()">Cancel</button>
-            <button class="btn btn-primary" onclick="createWorkspace()">Create</button>
+            <button class="btn auto-style-3" type="button" data-action="hide-create-modal">Cancel</button>
+            <button class="btn btn-primary" type="button" data-action="create-workspace">Create</button>
         </div>
     </div>
 </div>
@@ -97,7 +98,7 @@
         <p class="stats-note" id="statsAttributeBreakdown">Emails - · Phones - · Addresses - · Entitlements - · Roles - · IMs - · Photos - · X509 -</p>
         <p class="stats-note">Estimated disk usage apportions each PostgreSQL relation's on-disk size to this workspace by its share of rows in that relation. It includes table, index, and TOAST storage, but row width differences, dead tuples, and free space are distributed proportionally.</p>
         <div class="modal-actions">
-            <button class="btn btn-info" onclick="hideStatsModal()">Close</button>
+            <button class="btn btn-info" type="button" data-action="hide-stats-modal">Close</button>
         </div>
     </div>
 </div>
@@ -114,244 +115,10 @@
 
 <div class="session-banner" id="sessionExpiredBanner" role="alert" aria-hidden="true">
     <span>Your session expired. Copy anything you still need — unsaved changes are lost on sign-in.</span>
-    <button class="btn btn-primary btn-sm" type="button" onclick="signInAgain()">Sign in again</button>
+    <button class="btn btn-primary btn-sm" type="button" data-action="sign-in-again">Sign in again</button>
 </div>
 
 <div class="toast" id="toast"></div>
-
-<script type="module">
-// apiFetch() and signInAgain() come from /js/api-client.js, loaded in <head>.
-const API = '/api';
-const statsCache = new Map();
-let blockingActionInFlight = false;
-
-async function loadWorkspaces() {
-    try {
-        const res = await apiFetch(`${API}/workspaces`);
-        const data = await res.json();
-        const list = document.getElementById('workspaceList');
-        if (!data.length) {
-            list.innerHTML = '<li class="empty-state">No workspaces yet. Create one to get started.</li>';
-            return;
-        }
-        list.innerHTML = data.map(ws => `
-            <li class="workspace-item" onclick="window.location='/workspaces/${ws.id}'">
-                <div>
-                    <div class="name">${esc(ws.name)}</div>
-                    <div class="meta">Workspace ID ${esc(ws.id)}</div>
-                    <div class="meta">Owner ${esc(ws.createdByDisplayName || ws.createdByUsername || 'n/a')}</div>
-                    <div class="meta" id="ws-size-${ws.id}">Total size Loading...</div>
-                    <div class="meta">Created ${new Date(ws.createdAt).toLocaleString()}</div>
-                    <div class="meta">Last updated ${ws.updatedAt ? new Date(ws.updatedAt).toLocaleString() : 'N/A'}</div>
-                </div>
-                <div class="actions" onclick="event.stopPropagation()">
-                    <a href="/workspaces/${ws.id}" class="btn btn-primary btn-sm" style="text-decoration: none;">Open</a>
-                    <button class="btn btn-secondary btn-sm" onclick="showWorkspaceStats('${ws.id}','${esc(ws.name)}')">Stats</button>
-                    <button class="btn btn-danger btn-sm" onclick="deleteWorkspace('${ws.id}','${esc(ws.name)}')">Delete</button>
-                </div>
-            </li>
-        `).join('');
-        await Promise.all(data.map(ws => hydrateWorkspaceSize(ws.id)));
-    } catch {
-        document.getElementById('workspaceList').innerHTML = '<li class="empty-state">Failed to load workspaces.</li>';
-    }
-}
-
-async function hydrateWorkspaceSize(workspaceId) {
-    try {
-        const stats = await loadWorkspaceStats(workspaceId);
-        const size = document.getElementById(`ws-size-${workspaceId}`);
-        if (size) {
-            size.textContent = `Total size ${formatBytes(stats.storage?.estimatedRowBytes)}`;
-        }
-    } catch {
-        const size = document.getElementById(`ws-size-${workspaceId}`);
-        if (size) {
-            size.textContent = 'Total size unavailable';
-        }
-    }
-}
-
-async function loadWorkspaceStats(workspaceId) {
-    if (statsCache.has(workspaceId)) {
-        return statsCache.get(workspaceId);
-    }
-    const res = await apiFetch(`${API}/workspaces/${workspaceId}/stats`);
-    if (!res.ok) {
-        throw new Error('Failed to load workspace stats');
-    }
-    const stats = await res.json();
-    statsCache.set(workspaceId, stats);
-    return stats;
-}
-
-async function showWorkspaceStats(workspaceId, workspaceName) {
-    if (statsCache.has(workspaceId)) {
-        const stats = statsCache.get(workspaceId);
-        document.getElementById('statsModalTitle').textContent = `Workspace Stats: ${workspaceName}`;
-        renderWorkspaceStats(stats, 'stats');
-        document.getElementById('statsModal').classList.add('active');
-        return;
-    }
-    await runBlockingAction('Loading workspace stats', async () => {
-        try {
-            const stats = await loadWorkspaceStats(workspaceId);
-            document.getElementById('statsModalTitle').textContent = `Workspace Stats: ${workspaceName}`;
-            renderWorkspaceStats(stats, 'stats');
-            document.getElementById('statsModal').classList.add('active');
-        } catch {
-            toast('Failed to load workspace stats');
-        }
-    });
-}
-
-function hideStatsModal() {
-    document.getElementById('statsModal').classList.remove('active');
-}
-
-function setActionOverlay(active, title = 'Please wait', copy = 'The UI is locked until the request completes.') {
-    const overlay = document.getElementById('actionOverlay');
-    if (!overlay) {
-        return;
-    }
-    overlay.classList.toggle('active', active);
-    overlay.setAttribute('aria-hidden', active ? 'false' : 'true');
-    setText('actionOverlayTitle', title);
-    setText('actionOverlayCopy', copy);
-}
-
-async function runBlockingAction(title, operation, copy = 'This action may take a moment while the database responds.') {
-    if (blockingActionInFlight) {
-        return;
-    }
-    blockingActionInFlight = true;
-    setActionOverlay(true, title, copy);
-    try {
-        return await operation();
-    } catch (err) {
-        console.error('Action failed:', err);
-        toast('Request failed');
-        return null;
-    } finally {
-        blockingActionInFlight = false;
-        setActionOverlay(false);
-    }
-}
-
-function showCreateModal() { document.getElementById('createModal').classList.add('active'); document.getElementById('wsName').focus(); }
-function hideCreateModal() { document.getElementById('createModal').classList.remove('active'); }
-
-async function createWorkspace() {
-    const name = document.getElementById('wsName').value.trim();
-    if (!name) return;
-    const desc = document.getElementById('wsDesc').value.trim();
-    await runBlockingAction('Creating workspace', async () => {
-        const res = await apiFetch(`${API}/workspaces`, {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({name, description: desc || null})
-        });
-        if (!res.ok) {
-            const msg = await res.text();
-            toast(msg || 'Failed to create workspace');
-            return;
-        }
-        hideCreateModal();
-        document.getElementById('wsName').value = '';
-        document.getElementById('wsDesc').value = '';
-        toast('Workspace created');
-        await loadWorkspaces();
-    });
-}
-
-async function deleteWorkspace(id, name) {
-    if (!confirm(`Delete workspace "${name}"? This also deletes all its data.`)) return;
-    await runBlockingAction('Deleting workspace', async () => {
-        const res = await apiFetch(`${API}/workspaces/${id}`, {method: 'DELETE'});
-        if (!res.ok) {
-            const msg = await res.text();
-            toast(msg || 'Failed to delete workspace');
-            return;
-        }
-        statsCache.delete(id);
-        toast('Workspace deleted');
-        await loadWorkspaces();
-    });
-}
-
-function toast(msg) {
-    const t = document.getElementById('toast');
-    t.textContent = msg; t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), 2500);
-}
-
-function renderWorkspaceStats(stats, prefix) {
-    const objects = stats?.objects || {};
-    const relations = stats?.relations || {};
-    const storage = stats?.storage || {};
-    const attributes = objects.userAttributes || {};
-
-    setText(`${prefix}Objects`, formatNumber(objects.total));
-    setText(`${prefix}Relations`, formatNumber(relations.total));
-    setText(`${prefix}Storage`, formatBytes(storage.estimatedRowBytes));
-    setText(`${prefix}Users`, formatNumber(objects.users));
-    setText(`${prefix}Groups`, formatNumber(objects.groups));
-    setText(`${prefix}Tokens`, formatNumber(objects.tokens));
-    setText(`${prefix}Logs`, formatNumber(objects.logs));
-    setText(`${prefix}Attributes`, formatNumber(objects.userAttributeRows));
-    setText(`${prefix}Memberships`, formatNumber(relations.groupMemberships));
-    setText(
-        `${prefix}AttributeBreakdown`,
-        `Emails ${formatNumber(attributes.emails)} · Phones ${formatNumber(attributes.phoneNumbers)} · Addresses ${formatNumber(attributes.addresses)} · Entitlements ${formatNumber(attributes.entitlements)} · Roles ${formatNumber(attributes.roles)} · IMs ${formatNumber(attributes.ims)} · Photos ${formatNumber(attributes.photos)} · X509 ${formatNumber(attributes.x509Certificates)}`);
-}
-
-function setText(id, value) {
-    const element = document.getElementById(id);
-    if (element) {
-        element.textContent = value;
-    }
-}
-
-function formatNumber(value) {
-    if (typeof value !== 'number' || Number.isNaN(value)) {
-        return '-';
-    }
-    return new Intl.NumberFormat().format(value);
-}
-
-function formatBytes(value) {
-    if (typeof value !== 'number' || Number.isNaN(value)) {
-        return '-';
-    }
-    if (value < 1024) {
-        return `${formatNumber(value)} B`;
-    }
-
-    const units = ['KB', 'MB', 'GB', 'TB'];
-    let size = value / 1024;
-    let unitIndex = 0;
-    while (size >= 1024 && unitIndex < units.length - 1) {
-        size /= 1024;
-        unitIndex += 1;
-    }
-    return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[unitIndex]}`;
-}
-
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
-globalThis.showCreateModal = showCreateModal;
-globalThis.hideCreateModal = hideCreateModal;
-globalThis.createWorkspace = createWorkspace;
-globalThis.showWorkspaceStats = showWorkspaceStats;
-globalThis.hideStatsModal = hideStatsModal;
-globalThis.deleteWorkspace = deleteWorkspace;
-
-try {
-    await loadWorkspaces();
-} catch (err) {
-    console.error('Initialization error:', err);
-    toast('Failed to load workspaces');
-}
-</script>
 <footer class="site-footer">
     <nav class="site-footer-icons" aria-label="Legal and contact links">
         <a href="https://scimsandbox.github.io/scim-app-policy/terms.html" target="_blank" rel="noopener noreferrer" aria-label="Terms of Service" title="Terms of Service">

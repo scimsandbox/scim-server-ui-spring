@@ -64,7 +64,8 @@ management:
     port: 9090
   endpoint:
     health:
-      show-components: always
+      show-components: when_authorized
+      roles: ACTUATOR
   endpoints:
     web:
       exposure:
@@ -80,6 +81,8 @@ management:
 
 app:
   security:
+    actuator:
+      api-key: ${ACTUATOR_API_KEY:}
     oidc:
       role-claim: https://scimplayground.dev/roles
       admin-role: admin
