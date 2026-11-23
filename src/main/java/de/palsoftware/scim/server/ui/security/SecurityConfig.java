@@ -2,6 +2,7 @@ package de.palsoftware.scim.server.ui.security;
 
 import de.palsoftware.scim.server.ui.service.MgmtUserService;
 import de.palsoftware.scim.server.ui.utils.HttpUrlUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,6 +11,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
@@ -24,6 +26,7 @@ import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
@@ -51,19 +54,35 @@ public class SecurityConfig {
 
     private static final String CSRF_COOKIE_NAME = "SCIM_SERVER_MGMT_XSRF";
     private static final String INVALID_TOKEN_ERROR = "invalid_token";
+    private static final String UNVERIFIED_EMAIL_ERROR = "unverified_email";
+    public static final String AUTH_ERROR_PATH = "/auth-error";
 
     private final String adminRole;
     private final String userRole;
     private final String roleClaim;
+    private final boolean requireVerifiedEmail;
     private final String actuatorApiKey;
     private final int managementPort;
     private final int serverPort;
     private final String websiteUrl;
     private final MgmtUserService mgmtUserService;
 
+    SecurityConfig(String adminRole,
+                   String userRole,
+                   String roleClaim,
+                   String actuatorApiKey,
+                   String managementPort,
+                   String serverPort,
+                   String websiteUrl,
+                   MgmtUserService mgmtUserService) {
+        this(adminRole, userRole, roleClaim, false, actuatorApiKey, managementPort, serverPort, websiteUrl, mgmtUserService);
+    }
+
+    @Autowired
     public SecurityConfig(@Value("${app.security.oidc.admin-role}") String adminRole,
                           @Value("${app.security.oidc.user-role}") String userRole,
                           @Value("${app.security.oidc.role-claim}") String roleClaim,
+                          @Value("${app.security.oidc.require-verified-email:false}") boolean requireVerifiedEmail,
                           @Value("${app.security.actuator.api-key:}") String actuatorApiKey,
                           @Value("${management.server.port:-1}") String managementPort,
                           @Value("${server.port:8080}") String serverPort,
@@ -72,6 +91,7 @@ public class SecurityConfig {
         this.adminRole = adminRole;
         this.userRole = userRole;
         this.roleClaim = roleClaim;
+        this.requireVerifiedEmail = requireVerifiedEmail;
         this.actuatorApiKey = actuatorApiKey;
         this.managementPort = parsePort(managementPort, -1);
         this.serverPort = parsePort(serverPort, 8080);
@@ -111,6 +131,7 @@ public class SecurityConfig {
                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.GET, "/**"),
                 new NegatedRequestMatcher(apiMatcher),
                 new NegatedRequestMatcher(actuatorMatcher),
+                new NegatedRequestMatcher(PathPatternRequestMatcher.withDefaults().matcher(AUTH_ERROR_PATH)),
                 new NegatedRequestMatcher(PathPatternRequestMatcher.withDefaults().matcher("/favicon.*")),
                 new NegatedRequestMatcher(new RequestHeaderRequestMatcher("X-Requested-With", "XMLHttpRequest"))));
 
@@ -120,18 +141,19 @@ public class SecurityConfig {
                 new ActuatorApiKeyAuthFilter(actuatorApiKey, managementPort, serverPort),
                 OAuth2AuthorizationRequestRedirectFilter.class)
             .addFilterBefore(
-                new VerifiedPrincipalSessionFilter(),
+                new VerifiedPrincipalSessionFilter(requireVerifiedEmail),
                 OAuth2AuthorizationRequestRedirectFilter.class)
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                 .requestMatchers("/actuator", "/actuator/**").hasRole("ACTUATOR")
-                .requestMatchers("/css/**", "/js/**", "/images/**", "/fonts/**", "/favicon.*", "/error").permitAll()
+                .requestMatchers("/css/**", "/js/**", "/images/**", "/fonts/**", "/favicon.*", "/error", AUTH_ERROR_PATH).permitAll()
                 .anyRequest().authenticated())
             .headers(headers -> headers
                 .contentSecurityPolicy(csp -> csp.policyDirectives(cspDirectives))
                 .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
             .oauth2Login(oauth2 -> oauth2
-                .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService())))
+                .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService()))
+                .failureHandler(oauth2FailureHandler()))
             .logout(logout -> logout
                 .logoutSuccessHandler(oidcLogoutSuccessHandler))
             // XHRs get a bare 401 so the page can restart the login flow; everything else keeps redirecting
@@ -199,11 +221,23 @@ public class SecurityConfig {
     }
 
     OidcUser mapAndProvisionOidcUser(OidcUser oidcUser) {
-        String email = AuthenticatedUser.resolveEmail(oidcUser);
+        if (oidcUser == null) {
+            throw new OAuth2AuthenticationException(
+                    new OAuth2Error(INVALID_TOKEN_ERROR,
+                            "A valid email claim is required for management access",
+                            null));
+        }
+        if (requireVerifiedEmail && !AuthenticatedUser.isEmailVerified(oidcUser)) {
+            throw new OAuth2AuthenticationException(
+                    new OAuth2Error(UNVERIFIED_EMAIL_ERROR,
+                            "A verified email claim (email_verified=true) is required for management access",
+                            null));
+        }
+        String email = AuthenticatedUser.resolveEmail(oidcUser, requireVerifiedEmail);
         if (email == null) {
             throw new OAuth2AuthenticationException(
                     new OAuth2Error(INVALID_TOKEN_ERROR,
-                            "A verified email claim (email_verified=true) is required for management access",
+                            "A valid email claim is required for management access",
                             null));
         }
 
@@ -213,6 +247,26 @@ public class SecurityConfig {
         mgmtUserService.provisionUser(email);
 
         return new DefaultOidcUser(mappedAuthorities, oidcUser.getIdToken(), oidcUser.getUserInfo());
+    }
+
+    AuthenticationFailureHandler oauth2FailureHandler() {
+        return (request, response, exception) -> {
+            String reason = resolveAuthErrorReason(exception);
+            response.sendRedirect(AUTH_ERROR_PATH + "?reason=" + reason);
+        };
+    }
+
+    static String resolveAuthErrorReason(AuthenticationException exception) {
+        if (exception instanceof OAuth2AuthenticationException oauth2Ex && oauth2Ex.getError() != null) {
+            String code = oauth2Ex.getError().getErrorCode();
+            if (code != null) {
+                return switch (code) {
+                    case UNVERIFIED_EMAIL_ERROR, "access_denied", INVALID_TOKEN_ERROR, "authorization_request_not_found" -> code;
+                    default -> "authentication_failed";
+                };
+            }
+        }
+        return "authentication_failed";
     }
 
     static String buildContentSecurityPolicy(String websiteUrl) {

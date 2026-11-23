@@ -179,6 +179,14 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
+    void authErrorPageIsPublicAndDoesNotLoopToIdentityProvider() throws Exception {
+        mockMvc.perform(get("/auth-error").param("reason", "unverified_email").accept(MediaType.TEXT_HTML))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Email verification required")))
+                .andExpect(content().string(containsString("/oauth2/authorization/auth0")));
+    }
+
+    @Test
     void preDeployOidcSessionWithoutVerifiedEmail_redirectsToIdentityProviderInsteadOf500OnUiNavigation() throws Exception {
         MockHttpSession legacySession = buildPreDeployUnverifiedOidcSession();
 

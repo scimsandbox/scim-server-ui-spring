@@ -21,18 +21,22 @@ public final class AuthenticatedUser {
             return resolved;
         }
         if (authentication.getPrincipal() instanceof OidcUser) {
-            throw new InvalidAuthenticatedPrincipalException("Authenticated principal is missing a verified email address");
+            throw new InvalidAuthenticatedPrincipalException("Authenticated principal is missing a valid email address");
         }
         throw new InvalidAuthenticatedPrincipalException("Unable to resolve authenticated email");
     }
 
     public static String resolveEmail(Authentication authentication) {
+        return resolveEmail(authentication, false);
+    }
+
+    public static String resolveEmail(Authentication authentication, boolean requireVerifiedEmail) {
         if (authentication == null || authentication instanceof AnonymousAuthenticationToken) {
             return null;
         }
         Object principal = authentication.getPrincipal();
         if (principal instanceof OidcUser oidcUser) {
-            return resolveEmail(oidcUser);
+            return resolveEmail(oidcUser, requireVerifiedEmail);
         }
         String fallback = authentication.getName();
         return (fallback == null || fallback.isBlank()) ? null : fallback;
@@ -69,7 +73,14 @@ public final class AuthenticatedUser {
     }
 
     public static String resolveEmail(OidcUser oidcUser) {
-        if (!isEmailVerified(oidcUser)) {
+        return resolveEmail(oidcUser, false);
+    }
+
+    public static String resolveEmail(OidcUser oidcUser, boolean requireVerifiedEmail) {
+        if (oidcUser == null) {
+            return null;
+        }
+        if (requireVerifiedEmail && !isEmailVerified(oidcUser)) {
             return null;
         }
         return normalizeEmail(oidcUser.getEmail());

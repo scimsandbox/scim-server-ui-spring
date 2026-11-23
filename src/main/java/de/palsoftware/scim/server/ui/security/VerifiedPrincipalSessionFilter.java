@@ -19,9 +19,17 @@ import java.io.IOException;
  */
 final class VerifiedPrincipalSessionFilter extends OncePerRequestFilter {
 
+    private final boolean requireVerifiedEmail;
+
+    VerifiedPrincipalSessionFilter(boolean requireVerifiedEmail) {
+        this.requireVerifiedEmail = requireVerifiedEmail;
+    }
+
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return ActuatorApiKeyAuthFilter.isActuatorRequest(request);
+        String path = request.getServletPath();
+        return ActuatorApiKeyAuthFilter.isActuatorRequest(request)
+                || SecurityConfig.AUTH_ERROR_PATH.equals(path);
     }
 
     @Override
@@ -31,7 +39,7 @@ final class VerifiedPrincipalSessionFilter extends OncePerRequestFilter {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication != null
                 && !(authentication instanceof AnonymousAuthenticationToken)
-                && AuthenticatedUser.resolveEmail(authentication) == null) {
+                && AuthenticatedUser.resolveEmail(authentication, requireVerifiedEmail) == null) {
             HttpSession session = request.getSession(false);
             if (session != null) {
                 session.invalidate();
