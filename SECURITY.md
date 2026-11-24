@@ -46,7 +46,10 @@ its deployment independently as well.
 
 The codebase currently includes these baseline controls:
 
-- interactive login via Spring Security OAuth2 client and Auth0 OIDC
+- interactive login via Spring Security OAuth2 client and Auth0 OIDC (login
+  intentionally does **not** enforce the `email_verified` claim; accounts are
+  currently keyed on the normalized `email` claim, with a planned future
+  migration to OIDC `sub` (`uid`))
 - role mapping from a configurable OIDC claim to `ROLE_ADMIN` and `ROLE_USER`
 - CSRF protection for the web UI and management API
 - SHA-256 hashing for workspace tokens before persistence
@@ -63,13 +66,17 @@ following first:
 2. Put the UI behind HTTPS and a trusted reverse proxy.
 3. Limit access to authenticated operators only. This is an admin surface, not
    a public application.
-4. Keep the management port on 9090 private. Do not publish it on public
+4. While accounts are keyed by normalized email without enforcing
+   `email_verified`, configure Auth0 so open database sign-ups cannot collide
+   with social or enterprise connections sharing the same email address (for
+   example, enable a single connection or disable public database sign-ups).
+5. Keep the management port on 9090 private. Do not publish it on public
    ingress or a load balancer.
-5. Treat workspace bearer tokens as secrets. They are shown once and stored only
+6. Treat workspace bearer tokens as secrets. They are shown once and stored only
    as hashes.
-6. Review whether request logs may store personal data, credentials, or tenant
+7. Review whether request logs may store personal data, credentials, or tenant
    payloads before enabling the app in any non-test environment.
-7. Use least-privileged database credentials and separate databases or schemas
+8. Use least-privileged database credentials and separate databases or schemas
    per environment.
 
 ## Secrets Handling
