@@ -117,7 +117,7 @@ class OidcUserValidationTest {
                 "/auth-error?reason=authorization_request_not_found");
         assertFailureRedirect(
                 new OAuth2AuthenticationException(new OAuth2Error(AuthErrorReason.MISSING_EMAIL.code(),
-                        "\u001b[31mred\u001b[0m\u0085\u2028\u2029", null)),
+                        "\u001b[31mred\u001b[0m\u009b31m\u0085\u2028\u2029", null)),
                 "/auth-error?reason=missing_email");
         assertFailureRedirect(
                 new OAuth2AuthenticationException(new OAuth2Error("weird_unknown", "a".repeat(250), null)),
@@ -140,9 +140,10 @@ class OidcUserValidationTest {
                 .contains("denied  forged")
                 .doesNotContain("denied\r\nforged")
                 .doesNotContain("denied\nforged")
-                .contains(" [31mred [0m   ")
+                .contains(" [31mred [0m 31m   ")
                 .doesNotContain("\u001b[31mred")
                 .doesNotContain("red\u001b[0m")
+                .doesNotContain("\u009b")
                 .doesNotContain("\u0085")
                 .doesNotContain("\u2028")
                 .doesNotContain("\u2029")
