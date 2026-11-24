@@ -21,7 +21,7 @@ public final class AuthenticatedUser {
             return resolved;
         }
         if (authentication.getPrincipal() instanceof OidcUser) {
-            throw new InvalidAuthenticatedPrincipalException("Authenticated principal is missing a verified email address");
+            throw new InvalidAuthenticatedPrincipalException("Authenticated principal is missing a valid email address");
         }
         throw new InvalidAuthenticatedPrincipalException("Unable to resolve authenticated email");
     }
@@ -57,19 +57,8 @@ public final class AuthenticatedUser {
         return false;
     }
 
-    public static boolean isEmailVerified(OidcUser oidcUser) {
-        if (oidcUser == null) {
-            return false;
-        }
-        try {
-            return Boolean.TRUE.equals(oidcUser.getEmailVerified());
-        } catch (IllegalArgumentException ex) {
-            return false;
-        }
-    }
-
     public static String resolveEmail(OidcUser oidcUser) {
-        if (!isEmailVerified(oidcUser)) {
+        if (oidcUser == null) {
             return null;
         }
         return normalizeEmail(oidcUser.getEmail());

@@ -2,7 +2,10 @@ package de.palsoftware.scim.server.ui.security;
 
 import de.palsoftware.scim.server.ui.PostgresIntegrationTestSupport;
 import de.palsoftware.scim.server.ui.TestClientRegistrationConfig;
+import jakarta.servlet.RequestDispatcher;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -29,8 +32,12 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -121,6 +128,7 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
         mockMvc.perform(get("/favicon.svg")).andExpect(status().isOk());
         mockMvc.perform(get("/fonts/fonts.css")).andExpect(status().isOk());
         mockMvc.perform(get("/css/workspace.css")).andExpect(status().isOk());
+        mockMvc.perform(get("/css/error.css")).andExpect(status().isOk());
         // workspace.js and index.js depend on these files existing; a packaging slip would break
         // page behaviour or 401 handling while leaving backend tests green.
         mockMvc.perform(get("/js/api-client.js"))
@@ -167,8 +175,8 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
-    void preDeployOidcSessionWithoutVerifiedEmail_returns401InsteadOf500OnApiAndInvalidatesSession() throws Exception {
-        MockHttpSession legacySession = buildPreDeployUnverifiedOidcSession();
+    void preDeployOidcSessionWithoutEmailClaim_returns401InsteadOf500OnApiAndInvalidatesSession() throws Exception {
+        MockHttpSession legacySession = buildPreDeployOidcSessionWithoutEmail();
 
         mockMvc.perform(get("/api/workspaces")
                         .session(legacySession)
@@ -179,8 +187,73 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
-    void preDeployOidcSessionWithoutVerifiedEmail_redirectsToIdentityProviderInsteadOf500OnUiNavigation() throws Exception {
-        MockHttpSession legacySession = buildPreDeployUnverifiedOidcSession();
+    void authErrorPageIsPublicAndAddsPromptLoginOnlyForForcedReasons() throws Exception {
+        mockMvc.perform(get("/auth-error").param("reason", "access_denied").accept(MediaType.TEXT_HTML))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("<title>SCIM Server Manager | Sign-in was denied</title>")))
+                .andExpect(content().string(containsString("Sign-in was denied")))
+                .andExpect(content().string(containsString("href=\"/css/error.css\"")))
+                .andExpect(content().string(containsString("href=\"/oauth2/authorization/auth0?prompt=login\"")));
+
+        mockMvc.perform(get("/auth-error").param("reason", "authorization_request_not_found").accept(MediaType.TEXT_HTML))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Sign-in session expired")))
+                .andExpect(content().string(containsString("href=\"/oauth2/authorization/auth0\"")))
+                .andExpect(content().string(not(containsString("prompt=login"))));
+    }
+
+    @Test
+    void loginCallbackWithoutSavedAuthorizationRequest_redirectsToAuthError() throws Exception {
+        mockMvc.perform(get("/login/oauth2/code/auth0").param("code", "x").param("state", "y"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/auth-error?reason=authorization_request_not_found"));
+    }
+
+    @Test
+    void oauth2AuthorizationRequest_includesPromptLoginOnlyWhenRequested() throws Exception {
+        mockMvc.perform(get("/oauth2/authorization/auth0").param("prompt", "login"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("Location", containsString("prompt=login")));
+
+        mockMvc.perform(get("/oauth2/authorization/auth0"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("Location", not(containsString("prompt="))));
+
+        mockMvc.perform(get("/oauth2/authorization/auth0").param("prompt", "none"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("Location", not(containsString("prompt="))));
+    }
+
+    @Test
+    void authErrorPageWithInvalidOidcSession_returns200AndInvalidatesStaleSession() throws Exception {
+        MockHttpSession legacySession = buildPreDeployOidcSessionWithoutEmail();
+
+        mockMvc.perform(get("/auth-error")
+                        .param("reason", "missing_email")
+                        .session(legacySession)
+                        .accept(MediaType.TEXT_HTML))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Account profile incomplete")));
+
+        assertThat(legacySession.isInvalid()).isTrue();
+    }
+
+    @Test
+    void oidcSessionWithValidEmailAndEmailVerifiedFalse_isNotEvictedBySessionFilter() throws Exception {
+        MockHttpSession session = buildOidcSession(
+                Map.of("sub", "auth0|unverified-user", "email", "user@example.test", "email_verified", false));
+
+        mockMvc.perform(get("/api/workspaces")
+                        .session(session)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk());
+
+        assertThat(session.isInvalid()).isFalse();
+    }
+
+    @Test
+    void preDeployOidcSessionWithoutEmailClaim_redirectsToIdentityProviderInsteadOf500OnUiNavigation() throws Exception {
+        MockHttpSession legacySession = buildPreDeployOidcSessionWithoutEmail();
 
         mockMvc.perform(get("/")
                         .session(legacySession)
@@ -191,19 +264,69 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
         assertThat(legacySession.isInvalid()).isTrue();
     }
 
-    private static MockHttpSession buildPreDeployUnverifiedOidcSession() {
+    @ParameterizedTest
+    @CsvSource({
+            "400, Bad request, The request could not be understood.",
+            "403, Access denied, You do not have permission to perform this action",
+            "404, Page not found, The page you requested could not be found.",
+            "405, Method not allowed, This action is not supported for the requested address.",
+            "500, Something went wrong, An unexpected server error occurred."
+    })
+    void customErrorPageRendersStatusWithoutReflectingUntrustedDetails(
+            int statusCode, String expectedTitle, String expectedMessageSnippet) throws Exception {
+        mockMvc.perform(get("/error")
+                        .accept(MediaType.TEXT_HTML)
+                        .requestAttr(RequestDispatcher.ERROR_STATUS_CODE, statusCode)
+                        .requestAttr(RequestDispatcher.ERROR_MESSAGE, "<script>leaked-internal-detail</script>"))
+                .andExpect(status().is(statusCode))
+                .andExpect(content().string(containsString("<title>SCIM Server Manager | " + expectedTitle + "</title>")))
+                .andExpect(content().string(containsString("Error " + statusCode)))
+                .andExpect(content().string(containsString(expectedTitle)))
+                .andExpect(content().string(containsString(expectedMessageSnippet)))
+                .andExpect(content().string(containsString("href=\"/\"")))
+                .andExpect(content().string(not(containsString("Whitelabel Error Page"))))
+                .andExpect(content().string(not(containsString("leaked-internal-detail"))));
+    }
+
+    @Test
+    void directErrorPageVisitHides999StatusAndWhitelabel() throws Exception {
+        mockMvc.perform(get("/error").accept(MediaType.TEXT_HTML))
+                .andExpect(status().isInternalServerError())
+                .andExpect(content().string(containsString("Something went wrong")))
+                .andExpect(content().string(containsString("The request could not be completed.")))
+                .andExpect(content().string(containsString("href=\"/\"")))
+                .andExpect(content().string(not(containsString("999"))))
+                .andExpect(content().string(not(containsString("Whitelabel Error Page"))));
+    }
+
+    @Test
+    void errorEndpointPreservesJsonNegotiation() throws Exception {
+        mockMvc.perform(get("/error")
+                        .accept(MediaType.APPLICATION_JSON)
+                        .requestAttr(RequestDispatcher.ERROR_STATUS_CODE, 404))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    private static MockHttpSession buildPreDeployOidcSessionWithoutEmail() {
+        return buildOidcSession(
+                Map.of("sub", "auth0|legacy-user", "preferred_username", "legacy@example.test"));
+    }
+
+    private static MockHttpSession buildOidcSession(Map<String, Object> claims) {
         Instant now = Instant.now();
         OidcIdToken idToken = new OidcIdToken(
-                "legacy-id-token",
+                "oidc-id-token",
                 now,
                 now.plusSeconds(300),
-                Map.of("sub", "auth0|legacy-user", "preferred_username", "legacy@example.test"));
-        OidcUser legacyOidcUser = new DefaultOidcUser(
+                claims);
+        OidcUser oidcUser = new DefaultOidcUser(
                 List.of(new SimpleGrantedAuthority("ROLE_USER")),
                 idToken);
         OAuth2AuthenticationToken authToken = new OAuth2AuthenticationToken(
-                legacyOidcUser,
-                legacyOidcUser.getAuthorities(),
+                oidcUser,
+                oidcUser.getAuthorities(),
                 "auth0");
 
         SecurityContext context = SecurityContextHolder.createEmptyContext();

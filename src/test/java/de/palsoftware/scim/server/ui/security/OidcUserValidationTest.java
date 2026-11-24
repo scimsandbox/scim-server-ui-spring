@@ -3,8 +3,23 @@ package de.palsoftware.scim.server.ui.security;
 import de.palsoftware.scim.server.ui.service.MgmtUserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.registration.InMemoryClientRegistrationRepository;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
@@ -20,6 +35,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+@ExtendWith(OutputCaptureExtension.class)
 class OidcUserValidationTest {
 
     private static final String ROLE_CLAIM = "https://scimplayground.dev/roles";
@@ -42,89 +58,163 @@ class OidcUserValidationTest {
     }
 
     @Test
-    void mapAndProvisionOidcUser_rejectsUnverifiedEmail() {
-        OidcUser unverified = buildOidcUser(Map.of(
-                "sub", "auth0|123",
-                "email", "victim@example.com",
-                "email_verified", false));
-
-        assertThatThrownBy(() -> securityConfig.mapAndProvisionOidcUser(unverified))
-                .isInstanceOf(OAuth2AuthenticationException.class)
-                .satisfies(ex -> assertThat(((OAuth2AuthenticationException) ex).getError().getErrorCode())
-                        .isEqualTo("invalid_token"));
-
-        verifyNoInteractions(mgmtUserService);
-    }
-
-    @Test
-    void mapAndProvisionOidcUser_rejectsMissingEmailVerifiedClaim() {
-        OidcUser missingVerified = buildOidcUser(Map.of(
-                "sub", "auth0|123",
-                "email", "victim@example.com"));
-
-        assertThatThrownBy(() -> securityConfig.mapAndProvisionOidcUser(missingVerified))
-                .isInstanceOf(OAuth2AuthenticationException.class);
-
-        verifyNoInteractions(mgmtUserService);
-    }
-
-    @Test
-    void mapAndProvisionOidcUser_rejectsPreferredUsernameWithoutVerifiedEmail() {
-        OidcUser preferredOnly = buildOidcUser(Map.of(
-                "sub", "auth0|123",
-                "preferred_username", "spoofed@example.com",
-                "email_verified", true));
-
-        assertThatThrownBy(() -> securityConfig.mapAndProvisionOidcUser(preferredOnly))
-                .isInstanceOf(OAuth2AuthenticationException.class);
-
-        verifyNoInteractions(mgmtUserService);
-    }
-
-    @Test
-    void mapAndProvisionOidcUser_acceptsVerifiedEmailAndMapsRoles() {
-        OidcUser verified = buildOidcUser(Map.of(
-                "sub", "auth0|456",
+    void mapAndProvisionOidcUser_provisionsNormalizedEmailRegardlessOfEmailVerifiedClaim() {
+        OidcUser verifiedTrue = buildOidcUser(Map.of(
+                "sub", "auth0|1",
                 "email", "Admin.User@Example.com",
                 "email_verified", true,
                 ROLE_CLAIM, List.of("admin")));
+        OidcUser verifiedFalse = buildOidcUser(Map.of(
+                "sub", "auth0|2",
+                "email", "Unverified.User@Example.com",
+                "email_verified", false,
+                ROLE_CLAIM, List.of("user")));
+        OidcUser verifiedOmitted = buildOidcUser(Map.of(
+                "sub", "auth0|3",
+                "email", "Enterprise.User@Example.com"));
 
-        OidcUser mapped = securityConfig.mapAndProvisionOidcUser(verified);
+        OidcUser mappedAdmin = securityConfig.mapAndProvisionOidcUser(verifiedTrue);
+        OidcUser mappedUnverified = securityConfig.mapAndProvisionOidcUser(verifiedFalse);
+        OidcUser mappedEnterprise = securityConfig.mapAndProvisionOidcUser(verifiedOmitted);
 
         verify(mgmtUserService).provisionUser("admin.user@example.com");
-        assertThat(mapped.getAuthorities())
+        verify(mgmtUserService).provisionUser("unverified.user@example.com");
+        verify(mgmtUserService).provisionUser("enterprise.user@example.com");
+        assertThat(mappedAdmin.getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
                 .contains("ROLE_USER", "ROLE_ADMIN");
+        assertThat(mappedUnverified.getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
+                .contains("ROLE_USER");
+        assertThat(mappedEnterprise.getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
+                .contains("ROLE_USER");
     }
 
     @Test
-    void mapAndProvisionOidcUser_handlesStringAndNonBooleanEmailVerifiedClaimsCleanly() {
-        OidcUser stringTrue = buildOidcUser(Map.of(
-                "sub", "auth0|789",
-                "email", "string.verified@example.com",
-                "email_verified", "true"));
-        OidcUser mapped = securityConfig.mapAndProvisionOidcUser(stringTrue);
-        assertThat(mapped).isNotNull();
-        verify(mgmtUserService).provisionUser("string.verified@example.com");
+    void mapAndProvisionOidcUser_rejectsNullMissingOrInvalidEmailWithMissingEmail() {
+        assertMissingEmail(null);
+        assertMissingEmail(buildOidcUser(Map.of(
+                "sub", "auth0|preferred",
+                "preferred_username", "spoofed@example.com")));
+        assertMissingEmail(buildOidcUser(Map.of(
+                "sub", "auth0|blank",
+                "email", "   ")));
+        assertMissingEmail(buildOidcUser(Map.of(
+                "sub", "auth0|invalid",
+                "email", "not-an-email")));
 
-        OidcUser stringFalse = buildOidcUser(Map.of(
-                "sub", "auth0|790",
-                "email", "string.unverified@example.com",
-                "email_verified", "false"));
-        assertThatThrownBy(() -> securityConfig.mapAndProvisionOidcUser(stringFalse))
-                .isInstanceOf(OAuth2AuthenticationException.class);
+        verifyNoInteractions(mgmtUserService);
+    }
 
-        // Non-Boolean/non-String claim (e.g. integer 1) causes ClaimAccessor.getClaimAsBoolean to throw
-        // IllegalArgumentException; mapAndProvisionOidcUser must fail closed with OAuth2AuthenticationException
-        // instead of leaking an unhandled 500 error.
-        OidcUser nonBooleanClaim = buildOidcUser(Map.of(
-                "sub", "auth0|791",
-                "email", "malformed.claim@example.com",
-                "email_verified", 1));
-        assertThatThrownBy(() -> securityConfig.mapAndProvisionOidcUser(nonBooleanClaim))
+    @Test
+    void oauth2FailureHandler_redirectsToAuthErrorWithAllowlistedOrDefaultReason(CapturedOutput output) throws Exception {
+        assertFailureRedirect(
+                new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED, "denied\r\nforged", null)),
+                "/auth-error?reason=access_denied");
+        assertFailureRedirect(
+                new OAuth2AuthenticationException(new OAuth2Error("authorization_request_not_found")),
+                "/auth-error?reason=authorization_request_not_found");
+        assertFailureRedirect(
+                new OAuth2AuthenticationException(new OAuth2Error(AuthErrorReason.MISSING_EMAIL.code(),
+                        "\u001b[31mred\u001b[0m\u009b31m\u0085\u2028\u2029", null)),
+                "/auth-error?reason=missing_email");
+        assertFailureRedirect(
+                new OAuth2AuthenticationException(new OAuth2Error("weird_unknown", "a".repeat(250), null)),
+                "/auth-error?reason=authentication_failed");
+        assertFailureRedirect(
+                new BadCredentialsException("bad\nline"),
+                "/auth-error?reason=authentication_failed");
+
+        MockHttpServletRequest contextReq = new MockHttpServletRequest();
+        contextReq.setContextPath("/app");
+        MockHttpServletResponse contextRes = new MockHttpServletResponse();
+        securityConfig.oauth2FailureHandler().onAuthenticationFailure(
+                contextReq,
+                contextRes,
+                new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED)));
+        assertThat(contextRes.getRedirectedUrl()).isEqualTo("/app/auth-error?reason=access_denied");
+
+        assertThat(output.getOut())
+                .contains("oauth2ErrorCode=access_denied, mappedReason=access_denied")
+                .contains("denied  forged")
+                .doesNotContain("denied\r\nforged")
+                .doesNotContain("denied\nforged")
+                .contains(" [31mred [0m 31m   ")
+                .doesNotContain("\u001b[31mred")
+                .doesNotContain("red\u001b[0m")
+                .doesNotContain("\u009b")
+                .doesNotContain("\u0085")
+                .doesNotContain("\u2028")
+                .doesNotContain("\u2029")
+                .contains("a".repeat(200) + "...")
+                .doesNotContain("a".repeat(201))
+                .contains("exception=BadCredentialsException, mappedReason=authentication_failed")
+                .contains("bad line")
+                .doesNotContain("bad\nline");
+    }
+
+    @Test
+    void oidcLoginUrlAndAuthorizationRequestResolver_derivePathAndAllowlistPromptLogin() {
+        ClientRegistration okta = buildRegistration("okta");
+        ClientRegistrationRepository singleRepo = new InMemoryClientRegistrationRepository(okta);
+        assertThat(SecurityConfig.oidcLoginUrl(singleRepo)).isEqualTo("/oauth2/authorization/okta");
+
+        ClientRegistrationRepository multiRepo = new InMemoryClientRegistrationRepository(okta, buildRegistration("entra"));
+        assertThatThrownBy(() -> SecurityConfig.oidcLoginUrl(multiRepo))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> SecurityConfig.oidcLoginUrl(mock(ClientRegistrationRepository.class)))
+                .isInstanceOf(IllegalStateException.class);
+
+        OAuth2AuthorizationRequestResolver resolver = securityConfig.authorizationRequestResolver(singleRepo);
+
+        MockHttpServletRequest promptLoginReq = new MockHttpServletRequest("GET", "/oauth2/authorization/okta");
+        promptLoginReq.setServletPath("/oauth2/authorization/okta");
+        promptLoginReq.setParameter("prompt", "login");
+        OAuth2AuthorizationRequest withPrompt = resolver.resolve(promptLoginReq);
+        assertThat(withPrompt).isNotNull();
+        assertThat(withPrompt.getAdditionalParameters()).containsEntry("prompt", "login");
+
+        OAuth2AuthorizationRequest withPromptById = resolver.resolve(promptLoginReq, "okta");
+        assertThat(withPromptById).isNotNull();
+        assertThat(withPromptById.getAdditionalParameters()).containsEntry("prompt", "login");
+
+        MockHttpServletRequest otherPromptReq = new MockHttpServletRequest("GET", "/oauth2/authorization/okta");
+        otherPromptReq.setServletPath("/oauth2/authorization/okta");
+        otherPromptReq.setParameter("prompt", "none");
+        OAuth2AuthorizationRequest withoutPrompt = resolver.resolve(otherPromptReq);
+        assertThat(withoutPrompt).isNotNull();
+        assertThat(withoutPrompt.getAdditionalParameters()).doesNotContainKey("prompt");
+
+        MockHttpServletRequest nonAuthReq = new MockHttpServletRequest("GET", "/other");
+        nonAuthReq.setServletPath("/other");
+        assertThat(resolver.resolve(nonAuthReq)).isNull();
+    }
+
+    private static ClientRegistration buildRegistration(String id) {
+        return ClientRegistration.withRegistrationId(id)
+                .clientId("client-id")
+                .clientSecret("client-secret")
+                .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+                .redirectUri("{baseUrl}/login/oauth2/code/" + id)
+                .authorizationUri("https://idp.example.test/authorize")
+                .tokenUri("https://idp.example.test/token")
+                .build();
+    }
+
+    private void assertMissingEmail(OidcUser oidcUser) {
+        assertThatThrownBy(() -> securityConfig.mapAndProvisionOidcUser(oidcUser))
                 .isInstanceOf(OAuth2AuthenticationException.class)
                 .satisfies(ex -> assertThat(((OAuth2AuthenticationException) ex).getError().getErrorCode())
-                        .isEqualTo("invalid_token"));
+                        .isEqualTo(AuthErrorReason.MISSING_EMAIL.code()));
+    }
+
+    private void assertFailureRedirect(AuthenticationException ex,
+                                       String expectedUrl) throws Exception {
+        MockHttpServletRequest req = new MockHttpServletRequest();
+        MockHttpServletResponse res = new MockHttpServletResponse();
+        securityConfig.oauth2FailureHandler().onAuthenticationFailure(req, res, ex);
+        assertThat(res.getRedirectedUrl()).isEqualTo(expectedUrl);
     }
 
     private static OidcUser buildOidcUser(Map<String, Object> claims) {

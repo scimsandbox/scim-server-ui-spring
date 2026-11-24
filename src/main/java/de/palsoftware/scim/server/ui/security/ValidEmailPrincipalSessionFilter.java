@@ -13,11 +13,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 /**
- * Evicts pre-deploy or malformed authenticated sessions whose principal lacks a verified email
+ * Evicts pre-deploy or malformed authenticated sessions whose principal lacks a valid email claim
  * before request authorization runs, so {@code /api/**} callers receive {@code 401 Unauthorized}
  * and browser navigations redirect cleanly to OIDC login instead of failing with {@code 500}.
  */
-final class VerifiedPrincipalSessionFilter extends OncePerRequestFilter {
+final class ValidEmailPrincipalSessionFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {

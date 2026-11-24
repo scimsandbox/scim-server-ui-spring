@@ -45,7 +45,7 @@ public class MgmtApiExceptionHandler {
             session.invalidate();
         }
         SecurityContextHolder.clearContext();
-        log.warn("Rejected unverified or stale authenticated principal for path {}: {}",
+        log.warn("Rejected invalid or stale authenticated principal for path {}: {}",
                 request.getRequestURI(), ex.getMessage());
         return buildResponse(HttpStatus.UNAUTHORIZED, "Authentication required", request.getRequestURI());
     }

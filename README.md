@@ -42,6 +42,7 @@ only to display the external SCIM base URL in the UI.
 | Area | Routes |
 | --- | --- |
 | UI | `/`, `/workspaces/{workspaceId}` |
+| Auth | `GET /auth-error`, `POST /logout` |
 | Workspaces | `GET/POST /api/workspaces`, `GET/DELETE /api/workspaces/{workspaceId}`, `GET /api/workspaces/{workspaceId}/stats` |
 | Tokens | `GET/POST /api/workspaces/{workspaceId}/tokens`, `DELETE /api/workspaces/{workspaceId}/tokens/{tokenId}` |
 | Users | `GET/POST /api/workspaces/{workspaceId}/users`, `PUT/DELETE /api/workspaces/{workspaceId}/users/{userId}`, `GET /api/workspaces/{workspaceId}/users/lookup` |
@@ -226,7 +227,12 @@ request, not against the cache TTL.
 
 ## Development Notes
 
-- `SecurityConfig` configures Auth0 login, role mapping, logout, and CSRF
+- `SecurityConfig` configures Auth0 login, role mapping, logout, and CSRF.
+  OIDC login intentionally does not require `email_verified` (accounts are
+  currently keyed on the normalized email claim, with a planned migration to
+  OIDC `sub` (Auth0 `user_id`)); OAuth2 login failures redirect to `/auth-error`
+  (`templates/auth-error.html`), and general HTTP errors render
+  `templates/error.html` via Spring Boot's `BasicErrorController`.
 - `WorkspaceService` owns workspace access control, token generation, and stats
 - `ScimAdminService` performs direct CRUD on shared SCIM tables for users and
   groups
