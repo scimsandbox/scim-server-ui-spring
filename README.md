@@ -230,7 +230,7 @@ request, not against the cache TTL.
 - `SecurityConfig` configures Auth0 login, role mapping, logout, and CSRF.
   OIDC login intentionally does not require `email_verified` (accounts are
   currently keyed on the normalized email claim, with a planned migration to
-  OIDC `sub`/`uid`); OAuth2 login failures redirect to `/auth-error`
+  OIDC `sub` (Auth0 `user_id`)); OAuth2 login failures redirect to `/auth-error`
   (`templates/auth-error.html`), and general HTTP errors render
   `templates/error.html` via Spring Boot's `BasicErrorController`.
 - `WorkspaceService` owns workspace access control, token generation, and stats

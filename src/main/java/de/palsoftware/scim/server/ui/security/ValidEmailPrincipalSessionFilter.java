@@ -17,7 +17,7 @@ import java.io.IOException;
  * before request authorization runs, so {@code /api/**} callers receive {@code 401 Unauthorized}
  * and browser navigations redirect cleanly to OIDC login instead of failing with {@code 500}.
  */
-final class VerifiedPrincipalSessionFilter extends OncePerRequestFilter {
+final class ValidEmailPrincipalSessionFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {

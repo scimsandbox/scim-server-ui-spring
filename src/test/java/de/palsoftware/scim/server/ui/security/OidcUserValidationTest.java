@@ -8,9 +8,15 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.registration.InMemoryClientRegistrationRepository;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
@@ -100,7 +106,7 @@ class OidcUserValidationTest {
     @Test
     void oauth2FailureHandler_redirectsToAuthErrorWithAllowlistedOrDefaultReason() throws Exception {
         assertFailureRedirect(
-                new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED)),
+                new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED, "denied\r\nforged", null)),
                 "/auth-error?reason=access_denied");
         assertFailureRedirect(
                 new OAuth2AuthenticationException(new OAuth2Error("authorization_request_not_found")),
@@ -112,7 +118,7 @@ class OidcUserValidationTest {
                 new OAuth2AuthenticationException(new OAuth2Error("weird_unknown")),
                 "/auth-error?reason=authentication_failed");
         assertFailureRedirect(
-                new BadCredentialsException("bad"),
+                new BadCredentialsException("bad\nline"),
                 "/auth-error?reason=authentication_failed");
 
         MockHttpServletRequest contextReq = new MockHttpServletRequest();
@@ -123,6 +129,54 @@ class OidcUserValidationTest {
                 contextRes,
                 new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED)));
         assertThat(contextRes.getRedirectedUrl()).isEqualTo("/app/auth-error?reason=access_denied");
+    }
+
+    @Test
+    void oidcLoginUrlAndAuthorizationRequestResolver_derivePathAndAllowlistPromptLogin() {
+        ClientRegistration okta = buildRegistration("okta");
+        ClientRegistrationRepository singleRepo = new InMemoryClientRegistrationRepository(okta);
+        assertThat(SecurityConfig.oidcLoginUrl(singleRepo)).isEqualTo("/oauth2/authorization/okta");
+
+        ClientRegistrationRepository multiRepo = new InMemoryClientRegistrationRepository(okta, buildRegistration("entra"));
+        assertThatThrownBy(() -> SecurityConfig.oidcLoginUrl(multiRepo))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> SecurityConfig.oidcLoginUrl(mock(ClientRegistrationRepository.class)))
+                .isInstanceOf(IllegalStateException.class);
+
+        OAuth2AuthorizationRequestResolver resolver = securityConfig.authorizationRequestResolver(singleRepo);
+
+        MockHttpServletRequest promptLoginReq = new MockHttpServletRequest("GET", "/oauth2/authorization/okta");
+        promptLoginReq.setServletPath("/oauth2/authorization/okta");
+        promptLoginReq.setParameter("prompt", "login");
+        OAuth2AuthorizationRequest withPrompt = resolver.resolve(promptLoginReq);
+        assertThat(withPrompt).isNotNull();
+        assertThat(withPrompt.getAdditionalParameters()).containsEntry("prompt", "login");
+
+        OAuth2AuthorizationRequest withPromptById = resolver.resolve(promptLoginReq, "okta");
+        assertThat(withPromptById).isNotNull();
+        assertThat(withPromptById.getAdditionalParameters()).containsEntry("prompt", "login");
+
+        MockHttpServletRequest otherPromptReq = new MockHttpServletRequest("GET", "/oauth2/authorization/okta");
+        otherPromptReq.setServletPath("/oauth2/authorization/okta");
+        otherPromptReq.setParameter("prompt", "none");
+        OAuth2AuthorizationRequest withoutPrompt = resolver.resolve(otherPromptReq);
+        assertThat(withoutPrompt).isNotNull();
+        assertThat(withoutPrompt.getAdditionalParameters()).doesNotContainKey("prompt");
+
+        MockHttpServletRequest nonAuthReq = new MockHttpServletRequest("GET", "/other");
+        nonAuthReq.setServletPath("/other");
+        assertThat(resolver.resolve(nonAuthReq)).isNull();
+    }
+
+    private static ClientRegistration buildRegistration(String id) {
+        return ClientRegistration.withRegistrationId(id)
+                .clientId("client-id")
+                .clientSecret("client-secret")
+                .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+                .redirectUri("{baseUrl}/login/oauth2/code/" + id)
+                .authorizationUri("https://idp.example.test/authorize")
+                .tokenUri("https://idp.example.test/token")
+                .build();
     }
 
     private void assertInvalidToken(OidcUser oidcUser) {

@@ -2,6 +2,9 @@ package de.palsoftware.scim.server.ui.security;
 
 import de.palsoftware.scim.server.ui.service.MgmtUserService;
 import de.palsoftware.scim.server.ui.utils.HttpUrlUtils;
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,11 +20,14 @@ import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
 import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.DefaultRedirectStrategy;
@@ -53,6 +59,7 @@ import java.util.Set;
 @EnableWebSecurity
 public class SecurityConfig {
 
+    private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
     private static final String CSRF_COOKIE_NAME = "SCIM_SERVER_MGMT_XSRF";
     public static final String AUTH_ERROR_PATH = "/auth-error";
 
@@ -125,7 +132,7 @@ public class SecurityConfig {
                 new ActuatorApiKeyAuthFilter(actuatorApiKey, managementPort, serverPort),
                 OAuth2AuthorizationRequestRedirectFilter.class)
             .addFilterBefore(
-                new VerifiedPrincipalSessionFilter(),
+                new ValidEmailPrincipalSessionFilter(),
                 OAuth2AuthorizationRequestRedirectFilter.class)
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
@@ -136,6 +143,8 @@ public class SecurityConfig {
                 .contentSecurityPolicy(csp -> csp.policyDirectives(cspDirectives))
                 .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
             .oauth2Login(oauth2 -> oauth2
+                .authorizationEndpoint(auth -> auth.authorizationRequestResolver(
+                    authorizationRequestResolver(clientRegistrationRepository)))
                 .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService()))
                 .failureHandler(oauth2FailureHandler()))
             .logout(logout -> logout
@@ -170,7 +179,7 @@ public class SecurityConfig {
      * would redirect every user to a registration that does not exist. Derive it instead, and refuse to
      * start rather than ship a broken login.
      */
-    private String oidcLoginUrl(ClientRegistrationRepository clientRegistrationRepository) {
+    public static String oidcLoginUrl(ClientRegistrationRepository clientRegistrationRepository) {
         List<String> registrationIds = new ArrayList<>();
         if (clientRegistrationRepository instanceof Iterable<?> registrations) {
             for (Object candidate : registrations) {
@@ -185,7 +194,36 @@ public class SecurityConfig {
                     + registrationIds + ". Multi-provider login needs a different authentication entry point.");
         }
         return OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI
-                + "/" + registrationIds.get(0);
+                + "/" + registrationIds.getFirst();
+    }
+
+    OAuth2AuthorizationRequestResolver authorizationRequestResolver(
+            ClientRegistrationRepository clientRegistrationRepository) {
+        DefaultOAuth2AuthorizationRequestResolver delegate = new DefaultOAuth2AuthorizationRequestResolver(
+                clientRegistrationRepository,
+                OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI);
+        return new OAuth2AuthorizationRequestResolver() {
+            @Override
+            public OAuth2AuthorizationRequest resolve(HttpServletRequest request) {
+                return applyPromptLoginIfRequested(request, delegate.resolve(request));
+            }
+
+            @Override
+            public OAuth2AuthorizationRequest resolve(HttpServletRequest request, String clientRegistrationId) {
+                return applyPromptLoginIfRequested(request, delegate.resolve(request, clientRegistrationId));
+            }
+        };
+    }
+
+    private static OAuth2AuthorizationRequest applyPromptLoginIfRequested(
+            HttpServletRequest request,
+            OAuth2AuthorizationRequest authorizationRequest) {
+        if (authorizationRequest == null || !"login".equals(request.getParameter("prompt"))) {
+            return authorizationRequest;
+        }
+        return OAuth2AuthorizationRequest.from(authorizationRequest)
+                .additionalParameters(params -> params.put("prompt", "login"))
+                .build();
     }
 
     @Bean
@@ -223,10 +261,25 @@ public class SecurityConfig {
 
     AuthenticationFailureHandler oauth2FailureHandler() {
         RedirectStrategy redirectStrategy = new DefaultRedirectStrategy();
-        return (request, response, exception) -> redirectStrategy.sendRedirect(
-                request,
-                response,
-                AUTH_ERROR_PATH + "?reason=" + AuthErrorReason.fromException(exception).code());
+        return (request, response, exception) -> {
+            AuthErrorReason reason = AuthErrorReason.fromException(exception);
+            if (exception instanceof OAuth2AuthenticationException oauth2Ex) {
+                log.warn("OIDC login failed (oauth2ErrorCode={}, mappedReason={}): {}",
+                        sanitizeForLog(oauth2Ex.getError().getErrorCode()),
+                        reason.code(),
+                        sanitizeForLog(oauth2Ex.getError().getDescription()));
+            } else {
+                log.warn("OIDC login failed (exception={}, mappedReason={}): {}",
+                        exception.getClass().getSimpleName(),
+                        reason.code(),
+                        sanitizeForLog(exception.getMessage()));
+            }
+            redirectStrategy.sendRedirect(request, response, AUTH_ERROR_PATH + "?reason=" + reason.code());
+        };
+    }
+
+    private static String sanitizeForLog(String value) {
+        return value == null ? "" : value.replace('\r', ' ').replace('\n', ' ');
     }
 
     static String buildContentSecurityPolicy(String websiteUrl) {
