@@ -3,6 +3,9 @@ package de.palsoftware.scim.server.ui.security;
 import de.palsoftware.scim.server.ui.service.MgmtUserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -32,6 +35,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+@ExtendWith(OutputCaptureExtension.class)
 class OidcUserValidationTest {
 
     private static final String ROLE_CLAIM = "https://scimplayground.dev/roles";
@@ -104,7 +108,7 @@ class OidcUserValidationTest {
     }
 
     @Test
-    void oauth2FailureHandler_redirectsToAuthErrorWithAllowlistedOrDefaultReason() throws Exception {
+    void oauth2FailureHandler_redirectsToAuthErrorWithAllowlistedOrDefaultReason(CapturedOutput output) throws Exception {
         assertFailureRedirect(
                 new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED, "denied\r\nforged", null)),
                 "/auth-error?reason=access_denied");
@@ -129,6 +133,15 @@ class OidcUserValidationTest {
                 contextRes,
                 new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED)));
         assertThat(contextRes.getRedirectedUrl()).isEqualTo("/app/auth-error?reason=access_denied");
+
+        assertThat(output.getOut())
+                .contains("oauth2ErrorCode=access_denied, mappedReason=access_denied")
+                .contains("denied  forged")
+                .doesNotContain("denied\r\nforged")
+                .doesNotContain("denied\nforged")
+                .contains("exception=BadCredentialsException, mappedReason=authentication_failed")
+                .contains("bad line")
+                .doesNotContain("bad\nline");
     }
 
     @Test
