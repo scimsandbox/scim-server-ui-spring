@@ -70,7 +70,7 @@ class MgmtApiExceptionHandlerTest {
                         List.of(new SimpleGrantedAuthority("ROLE_USER"))));
 
         ResponseEntity<Map<String, Object>> response = handler.handleInvalidPrincipal(
-                new InvalidAuthenticatedPrincipalException("Authenticated principal is missing a verified email address"),
+                new InvalidAuthenticatedPrincipalException("Authenticated principal is missing a valid email address"),
                 request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);

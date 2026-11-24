@@ -27,16 +27,12 @@ public final class AuthenticatedUser {
     }
 
     public static String resolveEmail(Authentication authentication) {
-        return resolveEmail(authentication, false);
-    }
-
-    public static String resolveEmail(Authentication authentication, boolean requireVerifiedEmail) {
         if (authentication == null || authentication instanceof AnonymousAuthenticationToken) {
             return null;
         }
         Object principal = authentication.getPrincipal();
         if (principal instanceof OidcUser oidcUser) {
-            return resolveEmail(oidcUser, requireVerifiedEmail);
+            return resolveEmail(oidcUser);
         }
         String fallback = authentication.getName();
         return (fallback == null || fallback.isBlank()) ? null : fallback;
@@ -61,26 +57,8 @@ public final class AuthenticatedUser {
         return false;
     }
 
-    public static boolean isEmailVerified(OidcUser oidcUser) {
-        if (oidcUser == null) {
-            return false;
-        }
-        try {
-            return Boolean.TRUE.equals(oidcUser.getEmailVerified());
-        } catch (IllegalArgumentException ex) {
-            return false;
-        }
-    }
-
     public static String resolveEmail(OidcUser oidcUser) {
-        return resolveEmail(oidcUser, false);
-    }
-
-    public static String resolveEmail(OidcUser oidcUser, boolean requireVerifiedEmail) {
         if (oidcUser == null) {
-            return null;
-        }
-        if (requireVerifiedEmail && !isEmailVerified(oidcUser)) {
             return null;
         }
         return normalizeEmail(oidcUser.getEmail());

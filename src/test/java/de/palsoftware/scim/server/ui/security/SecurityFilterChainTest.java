@@ -29,6 +29,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
@@ -167,8 +168,8 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
-    void preDeployOidcSessionWithoutVerifiedEmail_returns401InsteadOf500OnApiAndInvalidatesSession() throws Exception {
-        MockHttpSession legacySession = buildPreDeployUnverifiedOidcSession();
+    void preDeployOidcSessionWithoutEmailClaim_returns401InsteadOf500OnApiAndInvalidatesSession() throws Exception {
+        MockHttpSession legacySession = buildPreDeployOidcSessionWithoutEmail();
 
         mockMvc.perform(get("/api/workspaces")
                         .session(legacySession)
@@ -180,15 +181,43 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
 
     @Test
     void authErrorPageIsPublicAndDoesNotLoopToIdentityProvider() throws Exception {
-        mockMvc.perform(get("/auth-error").param("reason", "unverified_email").accept(MediaType.TEXT_HTML))
+        mockMvc.perform(get("/auth-error").param("reason", "access_denied").accept(MediaType.TEXT_HTML))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("Email verification required")))
-                .andExpect(content().string(containsString("/oauth2/authorization/auth0")));
+                .andExpect(content().string(containsString("Sign-in was denied")))
+                .andExpect(content().string(containsString("href=\"/\"")))
+                .andExpect(content().string(not(containsString("/oauth2/authorization/auth0"))));
     }
 
     @Test
-    void preDeployOidcSessionWithoutVerifiedEmail_redirectsToIdentityProviderInsteadOf500OnUiNavigation() throws Exception {
-        MockHttpSession legacySession = buildPreDeployUnverifiedOidcSession();
+    void authErrorPageWithInvalidOidcSession_returns200AndInvalidatesStaleSession() throws Exception {
+        MockHttpSession legacySession = buildPreDeployOidcSessionWithoutEmail();
+
+        mockMvc.perform(get("/auth-error")
+                        .param("reason", "invalid_token")
+                        .session(legacySession)
+                        .accept(MediaType.TEXT_HTML))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Account profile incomplete")));
+
+        assertThat(legacySession.isInvalid()).isTrue();
+    }
+
+    @Test
+    void oidcSessionWithValidEmailAndEmailVerifiedFalse_isNotEvictedBySessionFilter() throws Exception {
+        MockHttpSession session = buildOidcSession(
+                Map.of("sub", "auth0|unverified-user", "email", "user@example.test", "email_verified", false));
+
+        mockMvc.perform(get("/api/workspaces")
+                        .session(session)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk());
+
+        assertThat(session.isInvalid()).isFalse();
+    }
+
+    @Test
+    void preDeployOidcSessionWithoutEmailClaim_redirectsToIdentityProviderInsteadOf500OnUiNavigation() throws Exception {
+        MockHttpSession legacySession = buildPreDeployOidcSessionWithoutEmail();
 
         mockMvc.perform(get("/")
                         .session(legacySession)
@@ -199,19 +228,24 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
         assertThat(legacySession.isInvalid()).isTrue();
     }
 
-    private static MockHttpSession buildPreDeployUnverifiedOidcSession() {
+    private static MockHttpSession buildPreDeployOidcSessionWithoutEmail() {
+        return buildOidcSession(
+                Map.of("sub", "auth0|legacy-user", "preferred_username", "legacy@example.test"));
+    }
+
+    private static MockHttpSession buildOidcSession(Map<String, Object> claims) {
         Instant now = Instant.now();
         OidcIdToken idToken = new OidcIdToken(
-                "legacy-id-token",
+                "oidc-id-token",
                 now,
                 now.plusSeconds(300),
-                Map.of("sub", "auth0|legacy-user", "preferred_username", "legacy@example.test"));
-        OidcUser legacyOidcUser = new DefaultOidcUser(
+                claims);
+        OidcUser oidcUser = new DefaultOidcUser(
                 List.of(new SimpleGrantedAuthority("ROLE_USER")),
                 idToken);
         OAuth2AuthenticationToken authToken = new OAuth2AuthenticationToken(
-                legacyOidcUser,
-                legacyOidcUser.getAuthorities(),
+                oidcUser,
+                oidcUser.getAuthorities(),
                 "auth0");
 
         SecurityContext context = SecurityContextHolder.createEmptyContext();

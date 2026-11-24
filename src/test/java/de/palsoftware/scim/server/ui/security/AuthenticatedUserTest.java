@@ -4,11 +4,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
+import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -18,7 +22,9 @@ import static org.mockito.Mockito.when;
 
 class AuthenticatedUserTest {
 
-    // ─── email & OIDC verification ──────────────────────────────────────
+    private static final String NORMALIZED_EMAIL = "email@test.com";
+
+    // ─── email & OIDC resolution ────────────────────────────────────────
 
     @Test
     void email_nullAuth_throws() {
@@ -28,70 +34,61 @@ class AuthenticatedUserTest {
     }
 
     @Test
-    void email_oidcUser_verifiedEmail_returnsNormalizedEmail() {
-        OidcUser oidcUser = mock(OidcUser.class);
-        when(oidcUser.getEmailVerified()).thenReturn(true);
-        when(oidcUser.getEmail()).thenReturn("  Email@Test.com  ");
-        Authentication auth = mockAuthWithPrincipal(oidcUser);
+    void email_oidcUser_validEmail_resolvesRegardlessOfEmailVerifiedClaim() {
+        OidcUser verifiedTrue = buildOidcUser(Map.of(
+                "sub", "auth0|1",
+                "email", "  Email@Test.com  ",
+                "email_verified", true));
+        OidcUser verifiedFalse = buildOidcUser(Map.of(
+                "sub", "auth0|2",
+                "email", "  Email@Test.com  ",
+                "email_verified", false));
+        OidcUser verifiedOmitted = buildOidcUser(Map.of(
+                "sub", "auth0|3",
+                "email", "Email@Test.com"));
 
-        assertThat(AuthenticatedUser.email(auth)).isEqualTo("email@test.com");
+        assertThat(AuthenticatedUser.email(mockAuthWithPrincipal(verifiedTrue))).isEqualTo(NORMALIZED_EMAIL);
+        assertThat(AuthenticatedUser.email(mockAuthWithPrincipal(verifiedFalse))).isEqualTo(NORMALIZED_EMAIL);
+        assertThat(AuthenticatedUser.email(mockAuthWithPrincipal(verifiedOmitted))).isEqualTo(NORMALIZED_EMAIL);
+        assertThat(AuthenticatedUser.resolveEmail(verifiedTrue)).isEqualTo(NORMALIZED_EMAIL);
+        assertThat(AuthenticatedUser.resolveEmail(verifiedFalse)).isEqualTo(NORMALIZED_EMAIL);
+        assertThat(AuthenticatedUser.resolveEmail(verifiedOmitted)).isEqualTo(NORMALIZED_EMAIL);
     }
 
     @Test
-    void email_oidcUser_unverifiedEmail_allowedWhenVerificationNotRequired_rejectedWhenRequired() {
-        OidcUser oidcUser = mock(OidcUser.class);
-        when(oidcUser.getEmailVerified()).thenReturn(false);
-        when(oidcUser.getEmail()).thenReturn("  Email@Test.com  ");
-        Authentication auth = mockAuthWithPrincipal(oidcUser);
-
-        assertThat(AuthenticatedUser.email(auth)).isEqualTo("email@test.com");
-        assertThat(AuthenticatedUser.resolveEmail(auth, false)).isEqualTo("email@test.com");
-        assertThat(AuthenticatedUser.resolveEmail(auth, true)).isNull();
-    }
-
-    @Test
-    void email_oidcUser_missingEmailVerifiedClaim_allowedWhenVerificationNotRequired_rejectedWhenRequired() {
-        OidcUser oidcUser = mock(OidcUser.class);
-        when(oidcUser.getEmailVerified()).thenReturn(null);
-        when(oidcUser.getEmail()).thenReturn("email@test.com");
-        Authentication auth = mockAuthWithPrincipal(oidcUser);
-
-        assertThat(AuthenticatedUser.email(auth)).isEqualTo("email@test.com");
-        assertThat(AuthenticatedUser.resolveEmail(auth, true)).isNull();
-    }
-
-    @Test
-    void isEmailVerified_malformedNonBooleanClaimThrowingIllegalArgumentException_returnsFalse() {
-        OidcUser oidcUser = mock(OidcUser.class);
-        when(oidcUser.getEmailVerified()).thenThrow(
-                new IllegalArgumentException("Unable to convert claim 'email_verified' of type 'class java.lang.Integer' to Boolean."));
-
-        assertThat(AuthenticatedUser.isEmailVerified(oidcUser)).isFalse();
-        assertThat(AuthenticatedUser.resolveEmail(oidcUser, true)).isNull();
-        assertThat(AuthenticatedUser.resolveEmail((OidcUser) null, false)).isNull();
+    void resolveEmail_nullOidcUser_returnsNull() {
+        assertThat(AuthenticatedUser.resolveEmail((OidcUser) null)).isNull();
+        assertThat(AuthenticatedUser.resolveEmail((Authentication) null)).isNull();
     }
 
     @Test
     void resolveEmail_oidcUser_doesNotFallbackToPreferredUsernameOrUpn() {
         OidcUser oidcUser = mock(OidcUser.class);
-        lenient().when(oidcUser.getEmailVerified()).thenReturn(true);
         when(oidcUser.getEmail()).thenReturn(null);
         lenient().when(oidcUser.getPreferredUsername()).thenReturn("preferred.user@example.com");
         lenient().when(oidcUser.getClaimAsString("upn")).thenReturn("user@domain.com");
         lenient().when(oidcUser.getClaimAsString("unique_name")).thenReturn("unique@domain.com");
 
         assertThat(AuthenticatedUser.resolveEmail(oidcUser)).isNull();
-        assertThat(AuthenticatedUser.resolveEmail(oidcUser, true)).isNull();
+        assertThatThrownBy(() -> AuthenticatedUser.email(mockAuthWithPrincipal(oidcUser)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("valid email");
     }
 
     @Test
-    void email_oidcUser_missingEmail_throws() {
-        OidcUser oidcUser = mock(OidcUser.class);
-        lenient().when(oidcUser.getEmailVerified()).thenReturn(true);
-        when(oidcUser.getEmail()).thenReturn("   ");
-        Authentication auth = mockAuthWithPrincipal(oidcUser);
+    void email_oidcUser_blankOrInvalidEmail_throws() {
+        OidcUser blankEmail = buildOidcUser(Map.of("sub", "auth0|blank", "email", "   "));
+        OidcUser invalidEmail = buildOidcUser(Map.of(
+                "sub", "auth0|invalid",
+                "email", "not-an-email",
+                "preferred_username", "preferred@example.com"));
 
-        assertThatThrownBy(() -> AuthenticatedUser.email(auth))
+        assertThat(AuthenticatedUser.resolveEmail(blankEmail)).isNull();
+        assertThat(AuthenticatedUser.resolveEmail(invalidEmail)).isNull();
+        assertThatThrownBy(() -> AuthenticatedUser.email(mockAuthWithPrincipal(blankEmail)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("valid email");
+        assertThatThrownBy(() -> AuthenticatedUser.email(mockAuthWithPrincipal(invalidEmail)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("valid email");
     }
@@ -123,10 +120,8 @@ class AuthenticatedUserTest {
     }
 
     @Test
-    void displayName_oidcUser_verifiedEmail_returnsEmail() {
-        OidcUser oidcUser = mock(OidcUser.class);
-        when(oidcUser.getEmailVerified()).thenReturn(true);
-        when(oidcUser.getEmail()).thenReturn("display@test.com");
+    void displayName_oidcUser_validEmail_returnsEmail() {
+        OidcUser oidcUser = buildOidcUser(Map.of("sub", "auth0|display", "email", "display@test.com"));
         Authentication auth = mockAuthWithPrincipal(oidcUser);
 
         assertThat(AuthenticatedUser.displayName(auth)).isEqualTo("display@test.com");
@@ -134,10 +129,9 @@ class AuthenticatedUserTest {
 
     @Test
     void displayName_oidcUser_noEmail_throwsInsteadOfUsingPreferredUsername() {
-        OidcUser oidcUser = mock(OidcUser.class);
-        when(oidcUser.getEmailVerified()).thenReturn(true);
-        when(oidcUser.getEmail()).thenReturn(null);
-        lenient().when(oidcUser.getPreferredUsername()).thenReturn("preferred@example.com");
+        OidcUser oidcUser = buildOidcUser(Map.of(
+                "sub", "auth0|noemail",
+                "preferred_username", "preferred@example.com"));
         Authentication auth = mockAuthWithPrincipal(oidcUser);
 
         assertThatThrownBy(() -> AuthenticatedUser.displayName(auth))
@@ -187,5 +181,11 @@ class AuthenticatedUserTest {
         Authentication auth = mock(Authentication.class);
         when(auth.getPrincipal()).thenReturn(principal);
         return auth;
+    }
+
+    private static OidcUser buildOidcUser(Map<String, Object> claims) {
+        Instant now = Instant.now();
+        OidcIdToken idToken = new OidcIdToken("token-value", now, now.plusSeconds(300), claims);
+        return new DefaultOidcUser(List.of(), idToken);
     }
 }
