@@ -187,9 +187,10 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
-    void authErrorPageIsPublicAndDoesNotLoopToIdentityProvider() throws Exception {
+    void authErrorPageIsPublicAndAddsPromptLoginOnlyForForcedReasons() throws Exception {
         mockMvc.perform(get("/auth-error").param("reason", "access_denied").accept(MediaType.TEXT_HTML))
                 .andExpect(status().isOk())
+                .andExpect(content().string(containsString("<title>SCIM Server Manager | Sign-in was denied</title>")))
                 .andExpect(content().string(containsString("Sign-in was denied")))
                 .andExpect(content().string(containsString("href=\"/css/error.css\"")))
                 .andExpect(content().string(containsString("href=\"/oauth2/authorization/auth0?prompt=login\"")));
@@ -228,7 +229,7 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
         MockHttpSession legacySession = buildPreDeployOidcSessionWithoutEmail();
 
         mockMvc.perform(get("/auth-error")
-                        .param("reason", "invalid_token")
+                        .param("reason", "missing_email")
                         .session(legacySession)
                         .accept(MediaType.TEXT_HTML))
                 .andExpect(status().isOk())
@@ -278,7 +279,7 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
                         .requestAttr(RequestDispatcher.ERROR_STATUS_CODE, statusCode)
                         .requestAttr(RequestDispatcher.ERROR_MESSAGE, "<script>leaked-internal-detail</script>"))
                 .andExpect(status().is(statusCode))
-                .andExpect(content().string(containsString("<title>" + expectedTitle + " — SCIM Server Manager</title>")))
+                .andExpect(content().string(containsString("<title>SCIM Server Manager | " + expectedTitle + "</title>")))
                 .andExpect(content().string(containsString("Error " + statusCode)))
                 .andExpect(content().string(containsString(expectedTitle)))
                 .andExpect(content().string(containsString(expectedMessageSnippet)))

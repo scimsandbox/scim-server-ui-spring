@@ -26,7 +26,6 @@ import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequest
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
-import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
@@ -60,6 +59,7 @@ import java.util.Set;
 public class SecurityConfig {
 
     private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
+    private static final int MAX_LOG_FIELD_LENGTH = 200;
     private static final String CSRF_COOKIE_NAME = "SCIM_SERVER_MGMT_XSRF";
     public static final String AUTH_ERROR_PATH = "/auth-error";
 
@@ -246,7 +246,7 @@ public class SecurityConfig {
         String email = AuthenticatedUser.resolveEmail(oidcUser);
         if (email == null) {
             throw new OAuth2AuthenticationException(
-                    new OAuth2Error(OAuth2ErrorCodes.INVALID_TOKEN,
+                    new OAuth2Error(AuthErrorReason.MISSING_EMAIL.code(),
                             "A valid email claim is required for management access",
                             null));
         }
@@ -279,7 +279,16 @@ public class SecurityConfig {
     }
 
     private static String sanitizeForLog(String value) {
-        return value == null ? "" : value.replace('\r', ' ').replace('\n', ' ');
+        if (value == null) {
+            return "";
+        }
+        String cleaned = value
+                .replace('\r', ' ')
+                .replace('\n', ' ')
+                .replaceAll("[\\p{Cntrl}\\u0085\\u2028\\u2029]", " ");
+        return cleaned.length() > MAX_LOG_FIELD_LENGTH
+                ? cleaned.substring(0, MAX_LOG_FIELD_LENGTH) + "..."
+                : cleaned;
     }
 
     static String buildContentSecurityPolicy(String websiteUrl) {

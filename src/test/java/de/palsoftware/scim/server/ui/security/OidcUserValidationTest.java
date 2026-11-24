@@ -92,15 +92,15 @@ class OidcUserValidationTest {
     }
 
     @Test
-    void mapAndProvisionOidcUser_rejectsNullMissingOrInvalidEmailWithInvalidToken() {
-        assertInvalidToken(null);
-        assertInvalidToken(buildOidcUser(Map.of(
+    void mapAndProvisionOidcUser_rejectsNullMissingOrInvalidEmailWithMissingEmail() {
+        assertMissingEmail(null);
+        assertMissingEmail(buildOidcUser(Map.of(
                 "sub", "auth0|preferred",
                 "preferred_username", "spoofed@example.com")));
-        assertInvalidToken(buildOidcUser(Map.of(
+        assertMissingEmail(buildOidcUser(Map.of(
                 "sub", "auth0|blank",
                 "email", "   ")));
-        assertInvalidToken(buildOidcUser(Map.of(
+        assertMissingEmail(buildOidcUser(Map.of(
                 "sub", "auth0|invalid",
                 "email", "not-an-email")));
 
@@ -116,10 +116,11 @@ class OidcUserValidationTest {
                 new OAuth2AuthenticationException(new OAuth2Error("authorization_request_not_found")),
                 "/auth-error?reason=authorization_request_not_found");
         assertFailureRedirect(
-                new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_TOKEN)),
-                "/auth-error?reason=invalid_token");
+                new OAuth2AuthenticationException(new OAuth2Error(AuthErrorReason.MISSING_EMAIL.code(),
+                        "\u001b[31mred\u001b[0m\u0085\u2028\u2029", null)),
+                "/auth-error?reason=missing_email");
         assertFailureRedirect(
-                new OAuth2AuthenticationException(new OAuth2Error("weird_unknown")),
+                new OAuth2AuthenticationException(new OAuth2Error("weird_unknown", "a".repeat(250), null)),
                 "/auth-error?reason=authentication_failed");
         assertFailureRedirect(
                 new BadCredentialsException("bad\nline"),
@@ -139,6 +140,14 @@ class OidcUserValidationTest {
                 .contains("denied  forged")
                 .doesNotContain("denied\r\nforged")
                 .doesNotContain("denied\nforged")
+                .contains(" [31mred [0m   ")
+                .doesNotContain("\u001b[31mred")
+                .doesNotContain("red\u001b[0m")
+                .doesNotContain("\u0085")
+                .doesNotContain("\u2028")
+                .doesNotContain("\u2029")
+                .contains("a".repeat(200) + "...")
+                .doesNotContain("a".repeat(201))
                 .contains("exception=BadCredentialsException, mappedReason=authentication_failed")
                 .contains("bad line")
                 .doesNotContain("bad\nline");
@@ -192,11 +201,11 @@ class OidcUserValidationTest {
                 .build();
     }
 
-    private void assertInvalidToken(OidcUser oidcUser) {
+    private void assertMissingEmail(OidcUser oidcUser) {
         assertThatThrownBy(() -> securityConfig.mapAndProvisionOidcUser(oidcUser))
                 .isInstanceOf(OAuth2AuthenticationException.class)
                 .satisfies(ex -> assertThat(((OAuth2AuthenticationException) ex).getError().getErrorCode())
-                        .isEqualTo(OAuth2ErrorCodes.INVALID_TOKEN));
+                        .isEqualTo(AuthErrorReason.MISSING_EMAIL.code()));
     }
 
     private void assertFailureRedirect(AuthenticationException ex,
