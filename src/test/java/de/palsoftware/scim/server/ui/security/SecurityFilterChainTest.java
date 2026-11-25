@@ -144,7 +144,7 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
         mockMvc.perform(get("/robots.txt"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("X-Robots-Tag", "noindex, nofollow"))
-                .andExpect(content().string("User-agent: *\nDisallow: /api/\nDisallow: /actuator/\n"));
+                .andExpect(content().string("User-agent: *\nDisallow: /oauth2/\nDisallow: /login/\nDisallow: /api/\nDisallow: /actuator/\n"));
 
         mockMvc.perform(get("/").accept(MediaType.TEXT_HTML))
                 .andExpect(status().is3xxRedirection())
