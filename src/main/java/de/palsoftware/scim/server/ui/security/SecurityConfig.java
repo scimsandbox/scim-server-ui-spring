@@ -124,6 +124,7 @@ public class SecurityConfig {
                 new NegatedRequestMatcher(actuatorMatcher),
                 new NegatedRequestMatcher(PathPatternRequestMatcher.withDefaults().matcher(AUTH_ERROR_PATH)),
                 new NegatedRequestMatcher(PathPatternRequestMatcher.withDefaults().matcher("/favicon.*")),
+                new NegatedRequestMatcher(PathPatternRequestMatcher.withDefaults().matcher("/robots.txt")),
                 new NegatedRequestMatcher(new RequestHeaderRequestMatcher("X-Requested-With", "XMLHttpRequest"))));
 
         String cspDirectives = buildContentSecurityPolicy(websiteUrl);
@@ -137,7 +138,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                 .requestMatchers("/actuator", "/actuator/**").hasRole("ACTUATOR")
-                .requestMatchers("/css/**", "/js/**", "/images/**", "/fonts/**", "/favicon.*", "/error", AUTH_ERROR_PATH).permitAll()
+                .requestMatchers("/css/**", "/js/**", "/images/**", "/fonts/**", "/favicon.*", "/robots.txt", "/error", AUTH_ERROR_PATH).permitAll()
                 .anyRequest().authenticated())
             .headers(headers -> headers
                 .contentSecurityPolicy(csp -> csp.policyDirectives(cspDirectives))
