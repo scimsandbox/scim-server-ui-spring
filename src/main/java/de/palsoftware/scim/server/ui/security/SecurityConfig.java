@@ -38,6 +38,7 @@ import org.springframework.security.web.authentication.LoginUrlAuthenticationEnt
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.AndRequestMatcher;
@@ -137,11 +138,12 @@ public class SecurityConfig {
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                 .requestMatchers("/actuator", "/actuator/**").hasRole("ACTUATOR")
-                .requestMatchers("/css/**", "/js/**", "/images/**", "/fonts/**", "/favicon.*", "/error", AUTH_ERROR_PATH).permitAll()
+                .requestMatchers("/css/**", "/js/**", "/images/**", "/fonts/**", "/favicon.*", "/robots.txt", "/error", AUTH_ERROR_PATH).permitAll()
                 .anyRequest().authenticated())
             .headers(headers -> headers
                 .contentSecurityPolicy(csp -> csp.policyDirectives(cspDirectives))
-                .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
+                .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                .addHeaderWriter(new StaticHeadersWriter("X-Robots-Tag", "noindex, nofollow")))
             .oauth2Login(oauth2 -> oauth2
                 .authorizationEndpoint(auth -> auth.authorizationRequestResolver(
                     authorizationRequestResolver(clientRegistrationRepository)))

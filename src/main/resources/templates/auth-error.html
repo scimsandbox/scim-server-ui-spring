@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title th:text="'SCIM Server Manager | ' + ${errorTitle}">SCIM Server Manager | Sign-in failed</title>
+    <title th:text="${errorTitle} + ' | SCIM Server Manager | SCIM Sandbox'">Sign-in failed | SCIM Server Manager | SCIM Sandbox</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/favicon.svg}" href="/favicon.svg">
     <link rel="stylesheet" th:href="@{/css/error.css}" href="/css/error.css">
 </head>
