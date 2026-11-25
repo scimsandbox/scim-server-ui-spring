@@ -126,9 +126,6 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
     @Test
     void staticAssetsReferencedByTheTemplatesArePublic() throws Exception {
         mockMvc.perform(get("/favicon.svg")).andExpect(status().isOk());
-        mockMvc.perform(get("/robots.txt"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("Disallow: /")));
         mockMvc.perform(get("/fonts/fonts.css")).andExpect(status().isOk());
         mockMvc.perform(get("/css/workspace.css")).andExpect(status().isOk());
         mockMvc.perform(get("/css/error.css")).andExpect(status().isOk());
@@ -140,6 +137,18 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
         mockMvc.perform(get("/js/index.js"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("loadWorkspaces")));
+    }
+
+    @Test
+    void robotsTxtIsPublicAndResponsesEmitNoindexHeader() throws Exception {
+        mockMvc.perform(get("/robots.txt"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Robots-Tag", "noindex, nofollow"))
+                .andExpect(content().string("User-agent: *\nDisallow: /api/\nDisallow: /actuator/\n"));
+
+        mockMvc.perform(get("/").accept(MediaType.TEXT_HTML))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("X-Robots-Tag", "noindex, nofollow"));
     }
 
     @Test
@@ -193,8 +202,8 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
     void authErrorPageIsPublicAndAddsPromptLoginOnlyForForcedReasons() throws Exception {
         mockMvc.perform(get("/auth-error").param("reason", "access_denied").accept(MediaType.TEXT_HTML))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("<meta name=\"robots\" content=\"noindex, nofollow\">")))
-                .andExpect(content().string(containsString("<title>SCIM Server Manager | Sign-in was denied</title>")))
+                .andExpect(header().string("X-Robots-Tag", "noindex, nofollow"))
+                .andExpect(content().string(containsString("<title>Sign-in was denied | SCIM Server Manager | SCIM Sandbox</title>")))
                 .andExpect(content().string(containsString("Sign-in was denied")))
                 .andExpect(content().string(containsString("href=\"/css/error.css\"")))
                 .andExpect(content().string(containsString("href=\"/oauth2/authorization/auth0?prompt=login\"")));
@@ -283,8 +292,8 @@ class SecurityFilterChainTest extends PostgresIntegrationTestSupport {
                         .requestAttr(RequestDispatcher.ERROR_STATUS_CODE, statusCode)
                         .requestAttr(RequestDispatcher.ERROR_MESSAGE, "<script>leaked-internal-detail</script>"))
                 .andExpect(status().is(statusCode))
-                .andExpect(content().string(containsString("<meta name=\"robots\" content=\"noindex, nofollow\">")))
-                .andExpect(content().string(containsString("<title>SCIM Server Manager | " + expectedTitle + "</title>")))
+                .andExpect(header().string("X-Robots-Tag", "noindex, nofollow"))
+                .andExpect(content().string(containsString("<title>" + expectedTitle + " | SCIM Server Manager | SCIM Sandbox</title>")))
                 .andExpect(content().string(containsString("Error " + statusCode)))
                 .andExpect(content().string(containsString(expectedTitle)))
                 .andExpect(content().string(containsString(expectedMessageSnippet)))

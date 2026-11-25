@@ -38,6 +38,7 @@ import org.springframework.security.web.authentication.LoginUrlAuthenticationEnt
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.AndRequestMatcher;
@@ -124,7 +125,6 @@ public class SecurityConfig {
                 new NegatedRequestMatcher(actuatorMatcher),
                 new NegatedRequestMatcher(PathPatternRequestMatcher.withDefaults().matcher(AUTH_ERROR_PATH)),
                 new NegatedRequestMatcher(PathPatternRequestMatcher.withDefaults().matcher("/favicon.*")),
-                new NegatedRequestMatcher(PathPatternRequestMatcher.withDefaults().matcher("/robots.txt")),
                 new NegatedRequestMatcher(new RequestHeaderRequestMatcher("X-Requested-With", "XMLHttpRequest"))));
 
         String cspDirectives = buildContentSecurityPolicy(websiteUrl);
@@ -142,7 +142,8 @@ public class SecurityConfig {
                 .anyRequest().authenticated())
             .headers(headers -> headers
                 .contentSecurityPolicy(csp -> csp.policyDirectives(cspDirectives))
-                .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
+                .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                .addHeaderWriter(new StaticHeadersWriter("X-Robots-Tag", "noindex, nofollow")))
             .oauth2Login(oauth2 -> oauth2
                 .authorizationEndpoint(auth -> auth.authorizationRequestResolver(
                     authorizationRequestResolver(clientRegistrationRepository)))

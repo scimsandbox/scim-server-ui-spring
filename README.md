@@ -42,6 +42,7 @@ only to display the external SCIM base URL in the UI.
 | Area | Routes |
 | --- | --- |
 | UI | `/`, `/workspaces/{workspaceId}` |
+| Public / Crawler | `GET /robots.txt` (all responses emit `X-Robots-Tag: noindex, nofollow`) |
 | Auth | `GET /auth-error`, `POST /logout` |
 | Workspaces | `GET/POST /api/workspaces`, `GET/DELETE /api/workspaces/{workspaceId}`, `GET /api/workspaces/{workspaceId}/stats` |
 | Tokens | `GET/POST /api/workspaces/{workspaceId}/tokens`, `DELETE /api/workspaces/{workspaceId}/tokens/{tokenId}` |
